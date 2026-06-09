@@ -1,0 +1,12 @@
+# Dados dos containers
+mosquitto/data/
+mosquitto/log/
+nodered/lib/
+
+# Sensíveis
+.env
+*.env
+secrets/
+*.db
+*.key
+*.pem

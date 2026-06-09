@@ -1,0 +1,285 @@
+[
+    {
+        "id": "1587388e210f39bb",
+        "type": "tab",
+        "label": "Fluxo 1",
+        "disabled": false,
+        "info": "",
+        "env": []
+    },
+    {
+        "id": "83e1d8e1911a0e33",
+        "type": "tab",
+        "label": "Fluxo 2",
+        "disabled": false,
+        "info": "",
+        "env": []
+    },
+    {
+        "id": "21917d7d71f96708",
+        "type": "mqtt-broker",
+        "name": "Mosquitto Local",
+        "broker": "mosquitto",
+        "port": 1883,
+        "clientid": "",
+        "autoConnect": true,
+        "usetls": false,
+        "protocolVersion": 4,
+        "keepalive": 60,
+        "cleansession": true,
+        "autoUnsubscribe": true,
+        "birthTopic": "",
+        "birthQos": "0",
+        "birthRetain": "false",
+        "birthPayload": "",
+        "birthMsg": {},
+        "closeTopic": "",
+        "closeQos": "0",
+        "closeRetain": "false",
+        "closePayload": "",
+        "closeMsg": {},
+        "willTopic": "",
+        "willQos": "0",
+        "willRetain": "false",
+        "willPayload": "",
+        "willMsg": {},
+        "userProps": "",
+        "sessionExpiry": ""
+    },
+    {
+        "id": "ec5a8290b3d179f1",
+        "type": "influxdb",
+        "hostname": "127.0.0.1",
+        "port": 8086,
+        "protocol": "http",
+        "database": "database",
+        "name": "InfluxDB Local",
+        "usetls": false,
+        "tls": "",
+        "influxdbVersion": "2.0",
+        "url": "http://influxdb:8086",
+        "timeout": 10,
+        "rejectUnauthorized": true
+    },
+    {
+        "id": "0c7f3f313f92c8cf",
+        "type": "mqtt in",
+        "z": "1587388e210f39bb",
+        "name": "",
+        "topic": "sensores/#",
+        "qos": "1",
+        "datatype": "auto-detect",
+        "broker": "21917d7d71f96708",
+        "nl": false,
+        "rap": true,
+        "rh": 0,
+        "inputs": 0,
+        "x": 180,
+        "y": 980,
+        "wires": [
+            [
+                "e7168d3c1fe7c122"
+            ]
+        ]
+    },
+    {
+        "id": "e7168d3c1fe7c122",
+        "type": "function",
+        "z": "1587388e210f39bb",
+        "name": "Formatar para InfluxDB",
+        "func": "// Se o payload chegou como string, converte para objeto\nlet dados = msg.payload;\nif (typeof dados === \"string\") {\n    try { dados = JSON.parse(dados); }\n    catch (e) { node.error(\"Payload nao e JSON valido: \" + dados); return null; }\n}\n\n// Garante que temperatura seja número\nconst temp = parseFloat(dados.t);\nif (isNaN(temp)) {\n    node.error(\"Temperatura invalida: \" + dados.t);\n    return null;\n}\n\n// Formato esperado pelo \"influxdb out\" (nao batch):\n// msg.payload = { campo1: valor, campo2: valor }\n// E as tags vao em msg.tags\nmsg.payload = {\n    valor: temp,\n    falha: dados.f ? 1 : 0\n};\n\nmsg.tags = {\n    sensor_id: String(dados.id || \"desconhecido\")\n};\n\nreturn msg;",
+        "outputs": 1,
+        "timeout": 0,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 390,
+        "y": 980,
+        "wires": [
+            [
+                "af36cedc0b2540c7",
+                "320590246d7b1740"
+            ]
+        ]
+    },
+    {
+        "id": "320590246d7b1740",
+        "type": "debug",
+        "z": "1587388e210f39bb",
+        "name": "debug 1",
+        "active": true,
+        "tosidebar": true,
+        "console": false,
+        "tostatus": false,
+        "complete": "payload",
+        "targetType": "msg",
+        "statusVal": "",
+        "statusType": "auto",
+        "x": 660,
+        "y": 1040,
+        "wires": []
+    },
+    {
+        "id": "af36cedc0b2540c7",
+        "type": "influxdb out",
+        "z": "1587388e210f39bb",
+        "influxdb": "ec5a8290b3d179f1",
+        "name": "Gravar no banco",
+        "measurement": "temperatura",
+        "precision": "",
+        "retentionPolicy": "",
+        "database": "database",
+        "precisionV18FluxV20": "ms",
+        "retentionPolicyV18Flux": "",
+        "org": "iot",
+        "bucket": "sensores",
+        "x": 690,
+        "y": 980,
+        "wires": []
+    },
+    {
+        "id": "da9224d296391847",
+        "type": "mqtt in",
+        "z": "83e1d8e1911a0e33",
+        "name": "Receber Mensagens",
+        "topic": "sensores/#",
+        "qos": "1",
+        "datatype": "auto-detect",
+        "broker": "21917d7d71f96708",
+        "nl": false,
+        "rap": true,
+        "rh": 0,
+        "inputs": 0,
+        "x": 150,
+        "y": 300,
+        "wires": [
+            [
+                "b61d896740b66915"
+            ]
+        ]
+    },
+    {
+        "id": "b61d896740b66915",
+        "type": "function",
+        "z": "83e1d8e1911a0e33",
+        "name": "Registrar Timestamp",
+        "func": "let sensores = flow.get('sensores') || {};\n\nconst partes = msg.topic.split('/');\nif (partes.length >= 2) {\n    const id = partes[1];\n    sensores[id] = Date.now();\n    flow.set('sensores', sensores);\n}\n\nreturn null;",
+        "outputs": 1,
+        "timeout": 0,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 380,
+        "y": 300,
+        "wires": [
+            []
+        ]
+    },
+    {
+        "id": "20e50f2e7ae4056e",
+        "type": "function",
+        "z": "83e1d8e1911a0e33",
+        "name": "Checar Offline",
+        "func": "// ── Sensores monitorados ──────────────────────────────────\n// Adicione novos sensores aqui conforme forem instalados\nconst SENSORES = ['VA01'];\nconst TIMEOUT_MS = 15000;\n\n// ─────────────────────────────────────────────────────────\nconst sensores = flow.get('sensores') || {};\nconst agora    = Date.now();\n\nconst offline = [];\nconst online  = [];\n\nSENSORES.forEach(id => {\n    const ultima = sensores[id];\n    if (!ultima) {\n        offline.push({ id, motivo: 'nunca_visto' });\n    } else if ((agora - ultima) > TIMEOUT_MS) {\n        const s = Math.floor((agora - ultima) / 1000);\n        offline.push({ id, motivo: 'timeout', segundos: s });\n    } else {\n        online.push(id);\n    }\n});\n\n// Gravar status de cada sensor no InfluxDB\nconst statusMsgs = SENSORES.map(id => ({\n    topic:   `monitoramento/${id}/online`,\n    payload: JSON.stringify({\n        id:     id,\n        online: online.includes(id),\n        ts:     Math.floor(agora / 1000)\n    }),\n    qos:    1,\n    retain: true\n}));\n\n// Log no debug\nif (offline.length > 0) {\n    const nomes = offline.map(s =>\n        `${s.id} (${s.motivo === 'nunca_visto' ? 'nunca visto' : s.segundos + 's sem resposta'})`\n    ).join(', ');\n    node.warn(`OFFLINE: ${nomes}`);\n} else {\n    node.log(`Todos online: ${online.join(', ')}`);\n}\n\n// Saída 1: alerta de offline (só dispara se houver offline)\n// Saída 2: status individual para gravar no InfluxDB\nconst alerta = offline.length > 0 ? {\n    payload: { offline, online, ts: new Date().toISOString() }\n} : null;\n\nreturn [alerta, ...statusMsgs];",
+        "outputs": 1,
+        "timeout": 0,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 360,
+        "y": 380,
+        "wires": [
+            [
+                "d31eeb9d9c08d1fb",
+                "0733baf78918537d"
+            ]
+        ]
+    },
+    {
+        "id": "d31eeb9d9c08d1fb",
+        "type": "debug",
+        "z": "83e1d8e1911a0e33",
+        "name": "Alerta Offline",
+        "active": true,
+        "tosidebar": true,
+        "console": false,
+        "tostatus": false,
+        "complete": "payload",
+        "targetType": "msg",
+        "statusVal": "",
+        "statusType": "auto",
+        "x": 610,
+        "y": 320,
+        "wires": []
+    },
+    {
+        "id": "1da9ae0dc3d27cf1",
+        "type": "inject",
+        "z": "83e1d8e1911a0e33",
+        "name": "Timer 15s",
+        "props": [
+            {
+                "p": "payload"
+            },
+            {
+                "p": "topic",
+                "vt": "str"
+            }
+        ],
+        "repeat": "15",
+        "crontab": "",
+        "once": true,
+        "onceDelay": "5",
+        "topic": "",
+        "payload": "",
+        "payloadType": "date",
+        "x": 190,
+        "y": 380,
+        "wires": [
+            [
+                "20e50f2e7ae4056e"
+            ]
+        ]
+    },
+    {
+        "id": "0733baf78918537d",
+        "type": "function",
+        "z": "83e1d8e1911a0e33",
+        "name": "Formatar Status",
+        "func": "let dados;\ntry { dados = JSON.parse(msg.payload); }\ncatch(e) { return null; }\n\nmsg.payload = { online: dados.online ? 1 : 0 };\nmsg.tags    = { sensor_id: dados.id };\n\nreturn msg;",
+        "outputs": 1,
+        "timeout": 0,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 640,
+        "y": 420,
+        "wires": [
+            [
+                "b5bdef1ff42a982a"
+            ]
+        ]
+    },
+    {
+        "id": "b5bdef1ff42a982a",
+        "type": "influxdb out",
+        "z": "83e1d8e1911a0e33",
+        "influxdb": "ec5a8290b3d179f1",
+        "name": "Gravar Status",
+        "measurement": "status_sensor",
+        "precision": "",
+        "retentionPolicy": "",
+        "database": "database",
+        "precisionV18FluxV20": "s",
+        "retentionPolicyV18Flux": "",
+        "org": "iot",
+        "bucket": "sensores",
+        "x": 900,
+        "y": 360,
+        "wires": []
+    }
+]

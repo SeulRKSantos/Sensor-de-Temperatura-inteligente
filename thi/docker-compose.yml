@@ -1,0 +1,65 @@
+services:
+  # mosquitto gerenciado manualmente com TLS (portas 1883 e 8883)
+
+  influxdb:
+    image: influxdb:2
+    container_name: influxdb
+    restart: unless-stopped
+    ports:
+      - "8086:8086"
+    volumes:
+      - /opt/iot/influxdb/data:/var/lib/influxdb2
+    environment:
+      - DOCKER_INFLUXDB_INIT_MODE=setup
+      - DOCKER_INFLUXDB_INIT_USERNAME=admin
+      - DOCKER_INFLUXDB_INIT_PASSWORD=***REMOVED***
+      - DOCKER_INFLUXDB_INIT_ORG=iot
+      - DOCKER_INFLUXDB_INIT_BUCKET=sensores
+      - DOCKER_INFLUXDB_INIT_RETENTION=48h
+
+  nodered:
+    image: nodered/node-red:latest
+    container_name: nodered
+    restart: unless-stopped
+    ports:
+      - "1880:1880"
+    volumes:
+      - /opt/iot/nodered/data:/data
+    depends_on:
+      - influxdb
+    environment:
+      - TZ=America/Sao_Paulo
+
+  grafana:
+    image: grafana/grafana:latest
+    container_name: grafana
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    volumes:
+      - /opt/iot/grafana/data:/var/lib/grafana
+    depends_on:
+      - influxdb
+    environment:
+      - GF_SECURITY_ADMIN_USER=admin
+      - GF_SECURITY_ADMIN_PASSWORD=***REMOVED***
+      - GF_USERS_ALLOW_SIGN_UP=false
+      - TZ=America/Sao_Paulo
+
+  sftpgo:
+    image: drakkan/sftpgo:latest
+    container_name: sftpgo
+    restart: unless-stopped
+    ports:
+      - "8090:8080"
+      - "2022:2022"
+    volumes:
+      - /opt/filebrowser/transferencias:/srv
+      - /opt/iot/sftpgo:/var/lib/sftpgo
+    environment:
+      - SFTPGO_HTTPD__BINDINGS__0__PORT=8080
+      - SFTPGO_HTTPD__BINDINGS__0__ADDRESS=0.0.0.0
+      - SFTPGO_SFTPD__BINDINGS__0__PORT=2022
+      - SFTPGO_DATA_PROVIDER__DRIVER=sqlite
+      - SFTPGO_DATA_PROVIDER__NAME=/var/lib/sftpgo/sftpgo.db
+      - TZ=America/Sao_Paulo
