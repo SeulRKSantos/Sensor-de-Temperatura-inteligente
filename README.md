@@ -37,11 +37,9 @@ Sensor-de-Temperatura-inteligente-com-sistema-Web/
 │
 └── thi/                              ← Projeto THI (PT100 + ESP32)
     ├── firmware/
-    │   ├── thguard_panel.ino         ← Firmware principal (4-20mA + painel web)
-    │   ├── esp32_mqtt_pt100_v4.ino   ← Firmware base (MAX31865 + MQTT)
-    │   └── teste_pt100_simples.ino   ← Firmware de teste
+    │   └── esp32_mqtt_pt100_v4.ino   ← Firmware ESP32 (4-20mA + MQTT + WiFiManager)
     ├── mosquitto/config/
-    │   └── mosquitto.conf
+    │   └── mosquitto.conf            ← Configuração do broker MQTT
     ├── nodered/
     │   └── flows.json                ← Fluxos Node-RED (MQTT → InfluxDB → alertas)
     ├── docker-compose.yml            ← Stack: Mosquitto, InfluxDB, Node-RED, Grafana
