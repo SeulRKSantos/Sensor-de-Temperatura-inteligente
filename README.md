@@ -5,54 +5,49 @@ Repositório com dois projetos de monitoramento ambiental com ESP + MQTT + paine
 ---
 
 ## 📁 Estrutura do Repositório
+
+```text
 Sensor-de-Temperatura-inteligente-com-sistema-Web/
 │
 ├── thguard/                          ← Projeto TH-GUARD (DHT22 + ESP8266)
 │   ├── firmware/
 │   │   ├── thguard_v4_mac.ino        ← Firmware com TLS (sensor remoto)
 │   │   └── thguard_v4_local.ino      ← Firmware sem TLS (rede local)
-│   │
 │   ├── backend/                      ← API Node.js
 │   │   └── src/
 │   │       ├── models/               ← MariaDB (db.js, migrate.js)
 │   │       ├── routes/               ← auth, sensors, alerts, users, commands
 │   │       └── services/             ← mqtt, influx, email, alertManager, scheduler
-│   │
 │   ├── frontend/                     ← Interface React + Vite
 │   │   └── src/
-│   │       ├── pages/                ← Dashboard, Sensores, Alertas, Relatórios, Usuários
+│   │       ├── pages/                ← Dashboard, Sensores, Alertas, Relatórios
 │   │       ├── components/           ← Layout responsivo (desktop + mobile)
 │   │       ├── hooks/                ← WebSocket em tempo real
 │   │       └── context/              ← Autenticação JWT
-│   │
 │   ├── mosquitto/config/             ← Broker MQTT
 │   │   ├── mosquitto.conf            ← Configuração (1883 local / 8883 TLS)
 │   │   └── acl.conf                  ← Controle de acesso por usuário
-│   │
 │   ├── mariadb/
 │   │   └── init.sql                  ← Schema do banco de dados
-│   │
 │   ├── nginx/
 │   │   └── nginx.conf                ← Proxy reverso
-│   │
 │   ├── docker-compose.yml            ← Stack completa
 │   ├── .env.example                  ← Variáveis de ambiente
-│   └── README.md                     ← Documentação do projeto
+│   └── README.md
 │
 └── thi/                              ← Projeto THI (PT100 + ESP32)
-├── firmware/
-│   ├── thguard_panel.ino         ← Firmware principal (4-20mA + painel web)
-│   ├── esp32_mqtt_pt100_v4.ino   ← Firmware base (MAX31865 + MQTT)
-│   └── teste_pt100_simples.ino   ← Firmware de teste
-│
-├── mosquitto/config/
-│   └── mosquitto.conf
-│
-├── nodered/
-│   └── flows.json                ← Fluxos Node-RED (MQTT → InfluxDB → alertas)
-│
-├── docker-compose.yml            ← Stack: Mosquitto, InfluxDB, Node-RED, Grafana
-└── README.md
+    ├── firmware/
+    │   ├── thguard_panel.ino         ← Firmware principal (4-20mA + painel web)
+    │   ├── esp32_mqtt_pt100_v4.ino   ← Firmware base (MAX31865 + MQTT)
+    │   └── teste_pt100_simples.ino   ← Firmware de teste
+    ├── mosquitto/config/
+    │   └── mosquitto.conf
+    ├── nodered/
+    │   └── flows.json                ← Fluxos Node-RED (MQTT → InfluxDB → alertas)
+    ├── docker-compose.yml            ← Stack: Mosquitto, InfluxDB, Node-RED, Grafana
+    └── README.md
+```
+
 ---
 
 ## 📦 Projetos
