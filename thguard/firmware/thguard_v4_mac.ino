@@ -1,7 +1,5 @@
-// ═══════════════════════════════════════════════════════════════════
 //  TH-GUARD — Firmware universal com registro por MAC
 //  Sem SENSOR_ID fixo — ID atribuído pelo servidor via MAC
-// ═══════════════════════════════════════════════════════════════════
 
 #include <Arduino.h>
 #include <ESP8266WiFi.h>
@@ -17,9 +15,8 @@
 #include <WiFiClientSecure.h>
 #include <time.h>
 
-// ══════════════════════════════════════════
-//  HARDWARE
-// ══════════════════════════════════════════
+// CONFIGURAÇÃO DE HARDWARE E PINAGEM
+
 #define DHT_PIN          2
 #define DHT_TYPE         DHT22
 #define BTN_RESET_PIN    0
@@ -32,9 +29,8 @@
 #define SDA_PIN          5
 #define SCL_PIN          4
 
-// ══════════════════════════════════════════
-//  MQTT — tópicos fixos (sem sensor_id hardcoded)
-// ══════════════════════════════════════════
+//  MQTT — tópicos fixos 
+
 #define TOPIC_REGISTER  "thguard/register"
 #define MQTT_USER       "thguard"
 #define MQTT_FINGERPRINT "B3:61:9A:3C:FE:A1:B5:D0:25:E5:BC:EC:D3:0C:F4:3D:08:9B:2B:C9"
@@ -45,18 +41,16 @@
 #define MQTT_INTERVAL   10000UL
 #define REGISTER_TIMEOUT 30000UL   // 30s esperando ID do servidor
 
-// ══════════════════════════════════════════
-//  INTERVALOS
-// ══════════════════════════════════════════
+// INTERVALOS
+
 #define INTERVALO_SENSOR    2000UL
 #define INTERVALO_SLIDE     8000UL
 #define INTERVALO_TRANSICAO 12UL
 #define INTERVALO_LED       1000UL
 #define INTERVALO_NTP       60000UL
 
-// ══════════════════════════════════════════
 //  OBJETOS
-// ══════════════════════════════════════════
+
 Adafruit_SSD1306 display(SCREEN_W, SCREEN_H, &Wire, OLED_RESET);
 DHT dht(DHT_PIN, DHT_TYPE);
 WiFiUDP ntpUDP;
@@ -65,9 +59,9 @@ WiFiClient espClient;
 PubSubClient mqtt(espClient);
 ESP8266WebServer server(80);
 
-// ══════════════════════════════════════════
+
 //  ESTADO
-// ══════════════════════════════════════════
+
 float temperaturaAtual = 0.0;
 float umidadeAtual     = 0.0;
 bool  modoAP           = false;
@@ -75,20 +69,24 @@ bool  ledAceso         = false;
 bool  registrado       = false;   // true quando tem sensor_id válido
 
 // ID e MAC
+
 String sensorId  = "";   // atribuído pelo servidor
 String macAddr   = "";   // MAC do ESP
 
 // Limites recebidos do servidor
+
 float limitTemp  = 25.0;
 float limitHumid = 80.0;
 
 // Tópicos dinâmicos (preenchidos após registro)
+
 String TOPIC_DATA   = "";
 String TOPIC_STATUS = "";
 String TOPIC_CMD    = "";
 String TOPIC_CONFIG = "";   // thguard/{MAC}/config — onde recebe o ID
 
 // Config
+
 String cfg_ssid1       = "";
 String cfg_pass1       = "";
 String cfg_ssid2       = "";
@@ -97,6 +95,7 @@ String cfg_mqtt_server = "192.168.0.102";
 int    cfg_mqtt_port   = 1883;
 
 // Timers
+
 unsigned long t_sensor   = 0;
 unsigned long t_mqtt     = 0;
 unsigned long t_led      = 0;
@@ -104,6 +103,7 @@ unsigned long t_ntp      = 0;
 unsigned long t_register = 0;   // último envio de register
 
 // Display
+
 const int SEQUENCIA[] = {0, 1, 0, 2};
 const int N_SLIDES    = 4;
 int  idxSeq       = 0;
@@ -114,9 +114,8 @@ int  xOffset      = 0;
 unsigned long t_slide = 0;
 unsigned long t_anim  = 0;
 
-// ══════════════════════════════════════════
 //  CONFIG — LittleFS
-// ══════════════════════════════════════════
+
 void carregarConfig() {
   if (!LittleFS.exists("/cfg.txt")) { Serial.println("[CFG] Sem config."); return; }
   File f = LittleFS.open("/cfg.txt", "r");
@@ -128,7 +127,6 @@ void carregarConfig() {
   cfg_mqtt_server = f.readStringUntil('\n'); cfg_mqtt_server.trim();
   String p        = f.readStringUntil('\n'); p.trim();
   if (p.length() > 0) cfg_mqtt_port = p.toInt();
-  // Linha extra: sensor_id salvo
   String sid = f.readStringUntil('\n'); sid.trim();
   if (sid.length() > 0) { sensorId = sid; registrado = true; }
   f.close();
@@ -149,9 +147,8 @@ void salvarConfig() {
   Serial.println("[CFG] Salvo. ID=" + sensorId);
 }
 
-// ══════════════════════════════════════════
 //  TÓPICOS DINÂMICOS
-// ══════════════════════════════════════════
+
 void configurarTopicos() {
   TOPIC_DATA   = "thguard/" + sensorId + "/data";
   TOPIC_STATUS = "thguard/" + sensorId + "/status";
@@ -159,9 +156,8 @@ void configurarTopicos() {
   Serial.println("[MQTT] Tópicos configurados para ID: " + sensorId);
 }
 
-// ══════════════════════════════════════════
 //  WIFI
-// ══════════════════════════════════════════
+
 void iniciarAP() {
   WiFi.mode(WIFI_AP);
   WiFi.softAP("TH-GUARD-Setup", "12345678");
@@ -186,9 +182,8 @@ void conectarWifi() {
   else { modoAP = false; Serial.println("\n[WIFI] Conectado! IP: " + WiFi.localIP().toString()); }
 }
 
-// ══════════════════════════════════════════
 //  MQTT CALLBACK
-// ══════════════════════════════════════════
+
 void mqttCallback(char* topic, byte* payload, unsigned int length) {
   String msg = "";
   for (unsigned int i = 0; i < length; i++) msg += (char)payload[i];
@@ -264,9 +259,8 @@ void mqttCallback(char* topic, byte* payload, unsigned int length) {
   }
 }
 
-// ══════════════════════════════════════════
 //  MQTT PUBLISH
-// ══════════════════════════════════════════
+
 void publicarStatus() {
   if (!mqtt.connected() || !registrado) return;
   char buf[200];
@@ -295,10 +289,7 @@ void enviarRegister() {
   Serial.println("[MQTT] Register enviado: " + String(buf));
   t_register = millis();
 }
-
-// ══════════════════════════════════════════
 //  MQTT CONNECT
-// ══════════════════════════════════════════
 void conectarMQTT() {
   if (modoAP || WiFi.status() != WL_CONNECTED) return;
 
@@ -355,9 +346,8 @@ void conectarMQTT() {
   }
 }
 
-// ══════════════════════════════════════════
 //  TICKS
-// ══════════════════════════════════════════
+
 void tickSensor() {
   unsigned long agora = millis();
   if (agora - t_sensor < INTERVALO_SENSOR) return;
@@ -402,7 +392,7 @@ void tickLED() {
     return;
   }
 
-  // Aguardando registro: ambos piscam rápido
+  // Aguardando registro
   if (!registrado) {
     if (agora - t_led < 200) return;
     t_led = agora;
@@ -426,14 +416,12 @@ void tickLED() {
   }
 
   if (emAlerta) {
-    // Amarelo pisca rápido (250ms), vermelho apagado
     if (agora - t_led < 250) return;
     t_led = agora;
     ledAceso = !ledAceso;
     digitalWrite(LED_AMARELO_PIN,  ledAceso ? HIGH : LOW);
     digitalWrite(LED_VERMELHO_PIN, LOW);
   } else {
-    // Normal: amarelo pisca devagar (1s), vermelho apagado
     if (agora - t_led < 1000) return;
     t_led = agora;
     ledAceso = !ledAceso;
@@ -450,9 +438,8 @@ void tickNTP() {
   timeClient.update();
 }
 
-// ══════════════════════════════════════════
 //  DISPLAY
-// ══════════════════════════════════════════
+
 void desenharBandeira(int x) {
   display.drawRect(x+1,1,126,62,SSD1306_WHITE);
   display.fillTriangle(x+6,32,x+64,5,x+122,32,SSD1306_WHITE);
@@ -535,9 +522,8 @@ void tickDisplay() {
   display.display();
 }
 
-// ══════════════════════════════════════════
 //  WEB SERVER
-// ══════════════════════════════════════════
+
 const char HTML_CONFIG[] PROGMEM = R"rawliteral(
 <!DOCTYPE html><html><head>
 <meta charset='UTF-8'><meta name='viewport' content='width=device-width,initial-scale=1'>
@@ -646,9 +632,6 @@ void verificarBotao() {
   } else { pressionado = false; }
 }
 
-// ══════════════════════════════════════════
-//  SETUP
-// ══════════════════════════════════════════
 void setup() {
   Serial.begin(115200);
   Serial.println("\n[TH-GUARD] Boot v4.0 — Registro por MAC");
@@ -702,9 +685,6 @@ void setup() {
   Serial.println("[TH-GUARD] Pronto. MAC=" + macAddr + " ID=" + (registrado ? sensorId : "pendente"));
 }
 
-// ══════════════════════════════════════════
-//  LOOP
-// ══════════════════════════════════════════
 void loop() {
   server.handleClient();
   verificarBotao();
