@@ -101,8 +101,8 @@ async function processReading(sensorId, temperature, humidity) {
 function startOfflineChecker() {
   setInterval(async () => {
     const now = Date.now();
-    const db = loadDB();
-    for (const sensor of db.sensors) {
+    const sensors = await db.getSensors();
+    for (const sensor of sensors) {
       const s = alertState[sensor.id];
       if (!s) continue;
       if (!s.offline && now - s.lastSeen > OFFLINE_THRESHOLD) {
