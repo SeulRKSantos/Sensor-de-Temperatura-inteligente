@@ -12,7 +12,7 @@ services:
     environment:
       - DOCKER_INFLUXDB_INIT_MODE=setup
       - DOCKER_INFLUXDB_INIT_USERNAME=admin
-      - DOCKER_INFLUXDB_INIT_PASSWORD=***REMOVED***
+      - DOCKER_INFLUXDB_INIT_PASSWORD=${INFLUX_PASSWORD}
       - DOCKER_INFLUXDB_INIT_ORG=iot
       - DOCKER_INFLUXDB_INIT_BUCKET=sensores
       - DOCKER_INFLUXDB_INIT_RETENTION=48h
@@ -42,7 +42,7 @@ services:
       - influxdb
     environment:
       - GF_SECURITY_ADMIN_USER=admin
-      - GF_SECURITY_ADMIN_PASSWORD=***REMOVED***
+      - GF_SECURITY_ADMIN_PASSWORD=${INFLUX_PASSWORD}
       - GF_USERS_ALLOW_SIGN_UP=false
       - TZ=America/Sao_Paulo
 

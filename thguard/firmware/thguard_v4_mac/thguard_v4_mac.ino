@@ -14,6 +14,7 @@
 #include <LittleFS.h>
 #include <ESP8266WebServer.h>
 #include <PubSubClient.h>
+#include "secrets.h"
 #include <WiFiClientSecure.h>
 #include <time.h>
 
@@ -36,12 +37,10 @@
 //  MQTT — tópicos fixos (sem sensor_id hardcoded)
 // ══════════════════════════════════════════
 #define TOPIC_REGISTER  "thguard/register"
-#define MQTT_USER       "thguard"
 #define MQTT_FINGERPRINT "B3:61:9A:3C:FE:A1:B5:D0:25:E5:BC:EC:D3:0C:F4:3D:08:9B:2B:C9"
 #define MQTT_TLS        true
 #define MQTT_PORT_PLAIN 1883
 #define MQTT_PORT_TLS   8883
-#define MQTT_PASS       "***REMOVED***"
 #define MQTT_INTERVAL   10000UL
 #define REGISTER_TIMEOUT 30000UL   // 30s esperando ID do servidor
 

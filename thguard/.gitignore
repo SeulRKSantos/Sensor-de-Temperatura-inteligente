@@ -22,3 +22,11 @@ mosquitto/certs/
 # OS
 .DS_Store
 Thumbs.db
+
+# Credenciais do firmware
+
+# Credenciais do firmware
+
+# Credenciais do firmware
+firmware/**/secrets.h
+firmware/secrets.h

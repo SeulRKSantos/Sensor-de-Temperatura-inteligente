@@ -14,6 +14,7 @@
 #include <LittleFS.h>
 #include <ESP8266WebServer.h>
 #include <PubSubClient.h>
+#include "secrets.h"
 
 // ══════════════════════════════════════════
 //  HARDWARE
@@ -34,8 +35,6 @@
 //  MQTT — tópicos fixos (sem sensor_id hardcoded)
 // ══════════════════════════════════════════
 #define TOPIC_REGISTER  "thguard/register"
-#define MQTT_USER       "thguard"
-#define MQTT_PASS       "***REMOVED***"
 #define MQTT_INTERVAL   10000UL
 #define REGISTER_TIMEOUT 30000UL   // 30s esperando ID do servidor
 
