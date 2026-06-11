@@ -1,5 +1,6 @@
 const express = require('express');
 const cors = require('cors');
+const rateLimit = require('express-rate-limit');
 const http = require('http');
 const { setupWebSocket } = require('./services/websocket');
 const { connectMQTT } = require('./services/mqtt');
@@ -14,7 +15,27 @@ const alertRoutes = require('./routes/alerts');
 const app = express();
 const server = http.createServer(app);
 
-app.use(cors({ origin: '*' }));
+const allowedOrigins = process.env.ALLOWED_ORIGINS
+  ? process.env.ALLOWED_ORIGINS.split(',')
+  : ['http://localhost:8081', 'http://localhost:5173'];
+
+app.use(cors({
+  origin: (origin, callback) => {
+    if (!origin || allowedOrigins.includes(origin)) return callback(null, true);
+    callback(new Error('CORS: origem nao permitida'));
+  },
+  credentials: true
+}));
+
+// Rate limit no login: 10 tentativas por 15 minutos por IP
+const loginLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 10,
+  message: { error: 'Muitas tentativas. Tente novamente em 15 minutos.' },
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+app.use('/api/auth/login', loginLimiter);
 app.use(express.json());
 
 app.use('/api/auth', authRoutes);

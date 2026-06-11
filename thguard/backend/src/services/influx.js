@@ -1,5 +1,19 @@
 const { InfluxDB, Point } = require('@influxdata/influxdb-client');
 
+// Sanitiza inputs para queries Flux — previne injecao
+function sanitizeSensorId(id) {
+  if (typeof id !== 'string') throw new Error('sensorId invalido');
+  if (!/^[a-zA-Z0-9_-]{1,50}$/.test(id)) throw new Error('sensorId invalido');
+  return id;
+}
+
+function sanitizeRange(range) {
+  const allowed = ['1h','6h','24h','168h','720h','4320h','8760h'];
+  if (!allowed.includes(range)) throw new Error('range invalido');
+  return range;
+}
+
+
 let writeApi, queryApi;
 
 function getClients() {
@@ -41,6 +55,7 @@ function windowForRange(range) {
 }
 
 async function queryHistory(sensorId, range = '24h') {
+  sensorId = sanitizeSensorId(sensorId); range = sanitizeRange(range);
   const { queryApi } = getClients();
   const bucket = process.env.INFLUX_BUCKET;
   const window = windowForRange(range);
@@ -67,6 +82,7 @@ async function queryHistory(sensorId, range = '24h') {
 }
 
 async function queryStats(sensorId, range = '24h') {
+  sensorId = sanitizeSensorId(sensorId); range = sanitizeRange(range);
   const { queryApi } = getClients();
   const bucket = process.env.INFLUX_BUCKET;
   const query = `
