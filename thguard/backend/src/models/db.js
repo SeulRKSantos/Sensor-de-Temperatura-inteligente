@@ -6,7 +6,7 @@ const pool = mysql.createPool({
   host:     process.env.DB_HOST     || 'mariadb',
   port:     parseInt(process.env.DB_PORT) || 3306,
   user:     process.env.DB_USER     || 'thguard',
-  password: process.env.DB_PASSWORD || 'thguard_db_2024',
+  password: process.env.DB_PASSWORD,
   database: process.env.DB_NAME     || 'thguard',
   waitForConnections: true,
   connectionLimit: 10,
@@ -30,9 +30,9 @@ async function ensureAdmin() {
       await query(
         'INSERT INTO users (id,name,email,password,role) VALUES (?,?,?,?,?)',
         [uuid(), 'Administrador', 'admin@thguard.local',
-         bcrypt.hashSync('admin123', 10), 'admin']
+         bcrypt.hashSync(process.env.ADMIN_PASSWORD || 'changeme_on_first_login', 10), 'admin']
       );
-      console.log('Usuario admin criado: admin@thguard.local / admin123');
+      console.log('Usuario admin criado: admin@thguard.local (senha: ADMIN_PASSWORD)');
     }
   } catch (e) {
     console.error('[DB] ensureAdmin erro:', e.message);
