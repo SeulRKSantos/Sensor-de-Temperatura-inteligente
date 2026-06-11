@@ -11,6 +11,12 @@ services:
     volumes:
       - mariadb-data:/var/lib/mysql
       - ./mariadb/init.sql:/docker-entrypoint-initdb.d/init.sql
+    healthcheck:
+      test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
     networks:
       - thguard-net
 
@@ -56,9 +62,12 @@ services:
     volumes:
       - ./backend/data:/app/data
     depends_on:
-      - mariadb
-      - influxdb
-      - mosquitto
+      mariadb:
+        condition: service_healthy
+      influxdb:
+        condition: service_started
+      mosquitto:
+        condition: service_started
     networks:
       - thguard-net
 

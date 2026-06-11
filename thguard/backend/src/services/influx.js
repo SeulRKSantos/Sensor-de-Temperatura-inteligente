@@ -37,7 +37,7 @@ function writePoint(sensorId, temperature, humidity) {
     .floatField('temperature', temperature)
     .floatField('humidity', humidity);
   writeApi.writePoint(point);
-  writeApi.flush().catch(e => console.error('[InfluxDB] Erro ao gravar:', e.message));
+  // Batch gerenciado pelo cliente InfluxDB (flushInterval configurado no getClients)
 }
 
 // Agrega dados por janela de tempo para não sobrecarregar o gráfico
