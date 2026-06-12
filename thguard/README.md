@@ -4,7 +4,7 @@ Sistema completo de monitoramento de temperatura e umidade com ESP8266 + DHT22, 
 
 ## Arquitetura
 ESP8266 + DHT22
-↓ MQTT (1883/8883)
+↓ MQTT (1883)
 Mosquitto Broker
 ↓
 Node.js Backend ──→ MariaDB (usuários, sensores, alertas)
@@ -30,7 +30,7 @@ Nginx (porta 8081)
 - Alertas por email (temperatura alta, umidade alta, sensor offline)
 - Relatórios diário/semanal/mensal com CSV anexo
 - Controle de acesso por roles (admin, editor, viewer)
-- Suporte a TLS/SSL na porta 8883 para sensores remotos
+- Autenticação MQTT por usuário/senha com controle de ACL por tópico
 - Interface responsiva (desktop e mobile)
 
 ## Pré-requisitos
@@ -89,7 +89,6 @@ O arquivo `firmware/thguard_v4_mac.ino` é o firmware universal para todos os se
 Edite as constantes no início do arquivo:
 
 ```cpp
-#define MQTT_TLS   false  // true para conexão segura (porta 8883)
 #define MQTT_USER  "thguard"
 #define MQTT_PASS  "sua_senha_mqtt"
 ```
@@ -101,17 +100,6 @@ Edite as constantes no início do arquivo:
 3. Selecione: `Tools → Flash Size → 4MB (FS:2MB OTA:-1019KB)`
 4. Grave o firmware: `Ctrl+U`
 5. Configure WiFi e IP do servidor via painel web do sensor (`http://IP_DO_SENSOR`)
-
-### TLS para sensores remotos
-
-Para sensores fora da rede local, habilite TLS:
-
-```cpp
-#define MQTT_TLS true
-```
-
-Gere os certificados e grave o `ca.crt` no LittleFS do ESP8266.
-Consulte a documentação em `docs/tls-setup.md`.
 
 ## Estrutura do projeto
 thguard/

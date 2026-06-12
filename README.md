@@ -11,8 +11,8 @@ Sensor-de-Temperatura-inteligente-com-sistema-Web/
 │
 ├── thguard/                          ← Projeto TH-GUARD (DHT22 + ESP8266)
 │   ├── firmware/
-│   │   ├── thguard_v4_mac.ino        ← Firmware com TLS (sensor remoto)
-│   │   └── thguard_v4_local.ino      ← Firmware sem TLS (rede local)
+│   │   ├── thguard_v4_mac.ino        ← Firmware ESP8266 (MQTT 1883 + registro por MAC)
+│   │   └── thguard_v4_local.ino      ← Firmware ESP8266 (versao simplificada)
 │   ├── backend/                      ← API Node.js
 │   │   └── src/
 │   │       ├── models/               ← MariaDB (db.js, migrate.js)
@@ -25,7 +25,7 @@ Sensor-de-Temperatura-inteligente-com-sistema-Web/
 │   │       ├── hooks/                ← WebSocket em tempo real
 │   │       └── context/              ← Autenticação JWT
 │   ├── mosquitto/config/             ← Broker MQTT
-│   │   ├── mosquitto.conf            ← Configuração (1883 local / 8883 TLS)
+│   │   ├── mosquitto.conf            ← Configuração do broker MQTT (porta 1883)
 │   │   └── acl.conf                  ← Controle de acesso por usuário
 │   ├── mariadb/
 │   │   └── init.sql                  ← Schema do banco de dados
@@ -58,7 +58,7 @@ Plataforma completa de monitoramento de temperatura e umidade com painel web pr�
 |---|---|
 | **Sensor** | DHT22 (temperatura e umidade) |
 | **Hardware** | NodeMCU 1.0 (ESP8266) |
-| **Comunicação** | MQTT (local: 1883 / remoto: 8883 TLS) |
+| **Comunicação** | MQTT (porta 1883, usuário/senha) |
 | **Backend** | Node.js + Express + WebSocket |
 | **Frontend** | React + Vite (responsivo) |
 | **Banco** | MariaDB 11 + InfluxDB 2 |
@@ -71,7 +71,7 @@ Plataforma completa de monitoramento de temperatura e umidade com painel web pr�
 - Gráficos históricos (1h, 6h, 24h, 7 dias)
 - Alertas por email com relatórios CSV (diário/semanal/mensal)
 - Controle de acesso por roles (admin, editor, viewer)
-- Suporte a TLS/SSL para sensores remotos via internet
+- Autenticação MQTT por usuário/senha com controle de ACL por tópico
 - Interface responsiva para desktop e mobile
 
 → [Documentação completa](./thguard/README.md)

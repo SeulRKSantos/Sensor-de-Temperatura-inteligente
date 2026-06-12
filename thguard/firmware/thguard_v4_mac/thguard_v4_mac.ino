@@ -15,8 +15,6 @@
 #include <ESP8266WebServer.h>
 #include <PubSubClient.h>
 #include "secrets.h"
-#include <WiFiClientSecure.h>
-#include <time.h>
 
 // ══════════════════════════════════════════
 //  HARDWARE
@@ -37,10 +35,7 @@
 //  MQTT — tópicos fixos (sem sensor_id hardcoded)
 // ══════════════════════════════════════════
 #define TOPIC_REGISTER  "thguard/register"
-#define MQTT_FINGERPRINT "B3:61:9A:3C:FE:A1:B5:D0:25:E5:BC:EC:D3:0C:F4:3D:08:9B:2B:C9"
-#define MQTT_TLS        true
 #define MQTT_PORT_PLAIN 1883
-#define MQTT_PORT_TLS   8883
 #define MQTT_INTERVAL   10000UL
 #define REGISTER_TIMEOUT 30000UL   // 30s esperando ID do servidor
 
@@ -300,40 +295,15 @@ void enviarRegister() {
 // ══════════════════════════════════════════
 void conectarMQTT() {
   if (modoAP || WiFi.status() != WL_CONNECTED) return;
-
-  if (MQTT_TLS) {
-    // Sincroniza horário via NTP — obrigatório para validação TLS
-    configTime(-3 * 3600, 0, "pool.ntp.org", "time.nist.gov");
-    Serial.print("[TLS] Aguardando NTP");
-    time_t now = time(nullptr);
-    int tries = 0;
-    while (now < 1000000000UL && tries < 30) {
-      delay(300); Serial.print(".");
-      now = time(nullptr); tries++;
-    }
-    Serial.printf(now > 1000000000UL ? " OK\n" : " FALHOU\n");
-    Serial.printf("[MEM] Heap livre: %d bytes\n", ESP.getFreeHeap());
-    // Recria cliente TLS a cada tentativa para evitar vazamento de memória
-    static WiFiClientSecure tlsClient;
-    tlsClient.setFingerprint(MQTT_FINGERPRINT);
-    Serial.println("[TLS] Fingerprint configurado");
-    mqtt.setClient(tlsClient);
-    mqtt.setServer(cfg_mqtt_server.c_str(), MQTT_PORT_TLS);
-  } else {
-    mqtt.setClient(espClient);
-    mqtt.setServer(cfg_mqtt_server.c_str(), MQTT_PORT_PLAIN);
-  }
-
+  mqtt.setClient(espClient);
+  mqtt.setServer(cfg_mqtt_server.c_str(), MQTT_PORT_PLAIN);
   mqtt.setCallback(mqttCallback);
   mqtt.setKeepAlive(60);
   mqtt.setSocketTimeout(15);
-
   String clientId = "thguard-" + macAddr;
-  Serial.printf("[MQTT] Conectando %s porta %d%s...\n",
-    clientId.c_str(),
-    MQTT_TLS ? MQTT_PORT_TLS : MQTT_PORT_PLAIN,
-    MQTT_TLS ? " (TLS)" : "");
-
+  Serial.printf("[MQTT] Conectando %s porta %d...
+",
+    clientId.c_str(), MQTT_PORT_PLAIN);
   if (mqtt.connect(clientId.c_str(), MQTT_USER, MQTT_PASS)) {
     Serial.println(" OK!");
     // Sempre se inscreve no tópico do MAC para receber o ID
