@@ -82,20 +82,30 @@ Login: admin@thguard.local / ***REMOVED***
 
 ## Firmware
 
-O arquivo `firmware/thguard_v4_mac.ino` é o firmware universal para todos os sensores.
+O arquivo `firmware/thguard_v4_mac/thguard_v4_mac.ino` é o firmware universal para todos os sensores
+(também disponível em `firmware/thguard_v4_local/`, versão simplificada).
 
 ### Configuração
 
-Edite as constantes no início do arquivo:
+Cada sketch precisa de um arquivo secrets.h com as credenciais do broker MQTT.
+Esse arquivo não é versionado (gitignored). Antes de compilar, copie o exemplo:
+
+```bash
+cd firmware/thguard_v4_mac
+cp secrets.h.example secrets.h
+```
+
+Edite secrets.h com as credenciais do seu broker:
 
 ```cpp
-#define MQTT_USER  "thguard"
-#define MQTT_PASS  "sua_senha_mqtt"
+#pragma once
+#define MQTT_USER "thguard"
+#define MQTT_PASS "TROQUE_AQUI"
 ```
 
 ### Upload
 
-1. Abra `firmware/thguard_v4_mac.ino` no Arduino IDE
+1. Abra `firmware/thguard_v4_mac/thguard_v4_mac.ino` no Arduino IDE
 2. Selecione: `Tools → Board → NodeMCU 1.0 (ESP-12E Module)`
 3. Selecione: `Tools → Flash Size → 4MB (FS:2MB OTA:-1019KB)`
 4. Grave o firmware: `Ctrl+U`
