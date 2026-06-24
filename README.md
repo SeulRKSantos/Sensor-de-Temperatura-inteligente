@@ -1,5 +1,8 @@
 # 🌡️ Sensor de Temperatura Inteligente com Sistema Web
 
+[![CI](https://github.com/SeulRKSantos/Sensor-de-Temperatura-inteligente-com-sistema-Web/actions/workflows/ci.yml/badge.svg)](https://github.com/SeulRKSantos/Sensor-de-Temperatura-inteligente-com-sistema-Web/actions/workflows/ci.yml)
+
+
 Repositório com dois projetos de monitoramento ambiental com ESP + MQTT + painel web, desenvolvidos para uso industrial e predial.
 
 ---

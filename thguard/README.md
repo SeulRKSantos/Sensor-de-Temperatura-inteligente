@@ -3,15 +3,18 @@
 Sistema completo de monitoramento de temperatura e umidade com ESP8266 + DHT22, backend Node.js, frontend React e banco de dados MariaDB + InfluxDB.
 
 ## Arquitetura
-ESP8266 + DHT22
-↓ MQTT (1883)
-Mosquitto Broker
-↓
-Node.js Backend ──→ MariaDB (usuários, sensores, alertas)
-↓               InfluxDB (séries temporais)
-React Frontend
-↓
-Nginx (porta 8081)
+
+```mermaid
+graph LR
+  S["Sensores ESP8266 + DHT22"] -->|MQTT 1883| M[Mosquitto Broker]
+  M --> B[Backend Node.js]
+  B --> D[(MariaDB: usuarios, sensores, alertas)]
+  B --> I[(InfluxDB: series temporais)]
+  B -->|WebSocket| F[Frontend React]
+  B -->|SMTP| E[Email / Relatorios]
+  F --> N[Nginx porta 8081]
+```
+
 ## Stack
 
 - **Firmware:** ESP8266 (NodeMCU 1.0) + DHT22
