@@ -1,14 +1,22 @@
 services:
-  # mosquitto gerenciado manualmente com TLS (portas 1883 e 8883)
+  mosquitto:
+    image: eclipse-mosquitto:2
+    container_name: thi-mosquitto
+    restart: unless-stopped
+    ports:
+      - "1883:1883"
+    volumes:
+      - ./mosquitto/config:/mosquitto/config
+      - mosquitto_data:/mosquitto/data
 
   influxdb:
     image: influxdb:2
-    container_name: influxdb
+    container_name: thi-influxdb
     restart: unless-stopped
     ports:
       - "8086:8086"
     volumes:
-      - /opt/iot/influxdb/data:/var/lib/influxdb2
+      - influxdb_data:/var/lib/influxdb2
     environment:
       - DOCKER_INFLUXDB_INIT_MODE=setup
       - DOCKER_INFLUXDB_INIT_USERNAME=admin
@@ -19,43 +27,43 @@ services:
 
   nodered:
     image: nodered/node-red:latest
-    container_name: nodered
+    container_name: thi-nodered
     restart: unless-stopped
     ports:
       - "1880:1880"
     volumes:
-      - /opt/iot/nodered/data:/data
+      - nodered_data:/data
     depends_on:
       - influxdb
+      - mosquitto
     environment:
       - TZ=America/Sao_Paulo
 
   grafana:
     image: grafana/grafana:latest
-    container_name: grafana
+    container_name: thi-grafana
     restart: unless-stopped
     ports:
       - "3000:3000"
     volumes:
-      - /opt/iot/grafana/data:/var/lib/grafana
+      - grafana_data:/var/lib/grafana
     depends_on:
       - influxdb
     environment:
       - GF_SECURITY_ADMIN_USER=admin
-      - GF_SECURITY_ADMIN_PASSWORD=${INFLUX_PASSWORD}
+      - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_PASSWORD}
       - GF_USERS_ALLOW_SIGN_UP=false
       - TZ=America/Sao_Paulo
 
   sftpgo:
     image: drakkan/sftpgo:latest
-    container_name: sftpgo
+    container_name: thi-sftpgo
     restart: unless-stopped
     ports:
       - "8090:8080"
       - "2022:2022"
     volumes:
-      - /opt/filebrowser/transferencias:/srv
-      - /opt/iot/sftpgo:/var/lib/sftpgo
+      - sftpgo_data:/var/lib/sftpgo
     environment:
       - SFTPGO_HTTPD__BINDINGS__0__PORT=8080
       - SFTPGO_HTTPD__BINDINGS__0__ADDRESS=0.0.0.0
@@ -63,3 +71,10 @@ services:
       - SFTPGO_DATA_PROVIDER__DRIVER=sqlite
       - SFTPGO_DATA_PROVIDER__NAME=/var/lib/sftpgo/sftpgo.db
       - TZ=America/Sao_Paulo
+
+volumes:
+  mosquitto_data:
+  influxdb_data:
+  nodered_data:
+  grafana_data:
+  sftpgo_data:

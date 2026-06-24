@@ -1,12 +1,14 @@
-# Dados dos containers
-mosquitto/data/
-mosquitto/log/
-nodered/lib/
-
-# Sensíveis
+# Credenciais
 .env
-*.env
-secrets/
-*.db
+
+# Certificados
+mosquitto/certs/
+*.crt
 *.key
-*.pem
+
+# Dados de produção
+mosquitto/data/
+
+# OS
+.DS_Store
+Thumbs.db
