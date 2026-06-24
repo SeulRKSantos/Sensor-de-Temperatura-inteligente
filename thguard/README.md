@@ -115,6 +115,8 @@ Edite secrets.h com as credenciais do seu broker:
 5. Configure WiFi e IP do servidor via painel web do sensor (`http://IP_DO_SENSOR`)
 
 ## Estrutura do projeto
+
+```text
 thguard/
 ├── backend/              ← API Node.js + serviços
 │   └── src/
@@ -131,6 +133,8 @@ thguard/
 ├── nginx/                ← Configuração do proxy reverso
 ├── .env.example          ← Variáveis de ambiente necessárias
 └── docker-compose.yml    ← Stack completa
+```
+
 ## Licença
 
 MIT
