@@ -256,4 +256,4 @@ function parsePeriodMs(range) {
   return parseInt(n) * (unit === 'h' ? 3600000 : 86400000);
 }
 
-module.exports = { writePoint, queryHistory, queryStats, queryDailyCSV, queryWeeklyCSV, queryMonthlyCSV, rowsToCSV, queryPeriodStats, countAlertsInPeriod };
+module.exports = { writePoint, queryHistory, queryStats, queryDailyCSV, queryWeeklyCSV, queryMonthlyCSV, rowsToCSV, queryPeriodStats, countAlertsInPeriod, sanitizeSensorId, sanitizeRange };

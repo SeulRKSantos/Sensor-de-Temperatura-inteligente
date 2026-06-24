@@ -4,7 +4,8 @@
   "main": "src/index.js",
   "scripts": {
     "start": "node src/index.js",
-    "dev": "nodemon src/index.js"
+    "dev": "nodemon src/index.js",
+    "test": "node --test test/influx.test.js"
   },
   "dependencies": {
     "@influxdata/influxdb-client": "^1.33.2",
