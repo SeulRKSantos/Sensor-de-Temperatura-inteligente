@@ -1,10 +1,12 @@
 // ═══════════════════════════════════════════════════════════════════
-//  TH-GUARD — Firmware universal com registro por MAC
-//  Sem SENSOR_ID fixo — ID atribuído pelo servidor via MAC
+//  TH-GUARD — Firmware ESP32 com registro por MAC
+//  Port fiel do firmware ESP8266 v4.0 — mesmo protocolo MQTT,
+//  apenas bibliotecas e pinagem adaptadas para o ESP32 DevKit.
+//  Sem SENSOR_ID fixo — ID atribuido pelo servidor via MAC.
 // ═══════════════════════════════════════════════════════════════════
 
 #include <Arduino.h>
-#include <ESP8266WiFi.h>
+#include <WiFi.h>
 #include <WiFiUdp.h>
 #include <NTPClient.h>
 #include <DHT.h>
@@ -12,27 +14,29 @@
 #include <Adafruit_GFX.h>
 #include <Adafruit_SSD1306.h>
 #include <LittleFS.h>
-#include <ESP8266WebServer.h>
+#include <WebServer.h>
 #include <PubSubClient.h>
 #include "secrets.h"
 
 // ══════════════════════════════════════════
-//  HARDWARE
+//  HARDWARE — pinagem ESP32 (ver PINAGEM.md)
 // ══════════════════════════════════════════
-#define DHT_PIN          2
-#define DHT_TYPE         DHT22
-#define BTN_RESET_PIN    0
-#define LED_AMARELO_PIN  14
-#define LED_VERMELHO_PIN 13
+#define DHT_PIN          4      // ESP8266 usava GPIO2 — GPIO4 no ESP32
+#define DHT_TYPE         DHT11
+#define BTN_RESET_PIN    27     // ESP8266 usava GPIO0 (boot) — GPIO27 no ESP32
+                                 // (GPIO0 no ESP32 e pino de strapping, evitar)
+#define LED_AMARELO_PIN  25     // ESP8266 usava GPIO14
+#define LED_VERMELHO_PIN 26     // ESP8266 usava GPIO13
 #define SCREEN_W         128
 #define SCREEN_H         64
 #define OLED_RESET       -1
 #define OLED_ADDR        0x3C
-#define SDA_PIN          5
-#define SCL_PIN          4
+#define SDA_PIN          21     // ESP8266 usava GPIO5 — I2C padrao do ESP32
+#define SCL_PIN          22     // ESP8266 usava GPIO4
 
 // ══════════════════════════════════════════
-//  MQTT — tópicos fixos (sem sensor_id hardcoded)
+//  MQTT — topicos fixos (sem sensor_id hardcoded)
+//  IDENTICO ao firmware ESP8266 — nao alterar sem alterar o backend
 // ══════════════════════════════════════════
 #define TOPIC_REGISTER  "thguard/register"
 #define MQTT_INTERVAL   10000UL
@@ -53,10 +57,14 @@
 Adafruit_SSD1306 display(SCREEN_W, SCREEN_H, &Wire, OLED_RESET);
 DHT dht(DHT_PIN, DHT_TYPE);
 WiFiUDP ntpUDP;
-NTPClient timeClient(ntpUDP, "pool.ntp.org", -10800, 60000);
+// NTP: usando IP direto (a.ntp.br) para nao depender de resolucao DNS,
+// que parece indisponivel nesta rede/VLAN (ver diagnostico no Serial:
+// [WIFI] DNS: ...). Se a rede tiver DNS funcional, pode trocar de volta
+// para "pool.ntp.org".
+NTPClient timeClient(ntpUDP, "200.160.7.186", -10800, 60000);
 WiFiClient espClient;
 PubSubClient mqtt(espClient);
-ESP8266WebServer server(80);
+WebServer server(80);
 
 // ══════════════════════════════════════════
 //  ESTADO
@@ -65,17 +73,17 @@ float temperaturaAtual = 0.0;
 float umidadeAtual     = 0.0;
 bool  modoAP           = false;
 bool  ledAceso         = false;
-bool  registrado       = false;   // true quando tem sensor_id válido
+bool  registrado       = false;   // true quando tem sensor_id valido
 
 // ID e MAC
-String sensorId  = "";   // atribuído pelo servidor
+String sensorId  = "";   // atribuido pelo servidor
 String macAddr   = "";   // MAC do ESP
 
 // Limites recebidos do servidor
 float limitTemp  = 25.0;
 float limitHumid = 80.0;
 
-// Tópicos dinâmicos (preenchidos após registro)
+// Topicos dinamicos (preenchidos apos registro)
 String TOPIC_DATA   = "";
 String TOPIC_STATUS = "";
 String TOPIC_CMD    = "";
@@ -94,7 +102,8 @@ unsigned long t_sensor   = 0;
 unsigned long t_mqtt     = 0;
 unsigned long t_led      = 0;
 unsigned long t_ntp      = 0;
-unsigned long t_register = 0;   // último envio de register
+unsigned long t_register = 0;   // ultimo envio de register
+bool ntpSincronizado = false;   // true somente apos resposta valida do servidor NTP
 
 // Display
 const int SEQUENCIA[] = {0, 1, 0, 2};
@@ -143,13 +152,13 @@ void salvarConfig() {
 }
 
 // ══════════════════════════════════════════
-//  TÓPICOS DINÂMICOS
+//  TOPICOS DINAMICOS
 // ══════════════════════════════════════════
 void configurarTopicos() {
   TOPIC_DATA   = "thguard/" + sensorId + "/data";
   TOPIC_STATUS = "thguard/" + sensorId + "/status";
   TOPIC_CMD    = "thguard/" + sensorId + "/cmd";
-  Serial.println("[MQTT] Tópicos configurados para ID: " + sensorId);
+  Serial.println("[MQTT] Topicos configurados para ID: " + sensorId);
 }
 
 // ══════════════════════════════════════════
@@ -168,12 +177,12 @@ void conectarWifi() {
   WiFi.begin(cfg_ssid1.c_str(), cfg_pass1.c_str());
   Serial.print("[WIFI] Conectando a " + cfg_ssid1);
   unsigned long inicio = millis();
-  while (WiFi.status() != WL_CONNECTED && millis() - inicio < 15000) { delay(200); yield(); Serial.print("."); }
+  while (WiFi.status() != WL_CONNECTED && millis() - inicio < 15000) { delay(200); Serial.print("."); }
   if (WiFi.status() != WL_CONNECTED && cfg_ssid2 != "") {
     Serial.println("\n[WIFI] Tentando backup: " + cfg_ssid2);
     WiFi.begin(cfg_ssid2.c_str(), cfg_pass2.c_str());
     inicio = millis();
-    while (WiFi.status() != WL_CONNECTED && millis() - inicio < 15000) { delay(200); yield(); Serial.print("."); }
+    while (WiFi.status() != WL_CONNECTED && millis() - inicio < 15000) { delay(200); Serial.print("."); }
   }
   if (WiFi.status() != WL_CONNECTED) { Serial.println("\n[WIFI] Falha."); iniciarAP(); }
   else { modoAP = false; Serial.println("\n[WIFI] Conectado! IP: " + WiFi.localIP().toString()); }
@@ -188,9 +197,11 @@ void mqttCallback(char* topic, byte* payload, unsigned int length) {
   String t = String(topic);
   Serial.println("[MQTT] Recebido em " + t + ": " + msg);
 
-  // Recebe ID do servidor via tópico do MAC
+  // Recebe ID do servidor via topico do MAC
+  // IMPORTANTE: topico e campo JSON devem ser identicos ao backend:
+  //   Topico: thguard/{MAC}/config
+  //   Campo:  "sensor_id" (snake_case)
   if (t == TOPIC_CONFIG) {
-    // Payload: {"sensor_id":"sensor-001"}
     int idx = msg.indexOf("\"sensor_id\":\"");
     if (idx >= 0) {
       int s = idx + 13;
@@ -214,11 +225,10 @@ void mqttCallback(char* topic, byte* payload, unsigned int length) {
     return;
   }
 
-  // Comandos remotos
+  // Comandos remotos (enviados pelo painel via botao "Salvar e enviar ao sensor")
   if (t == TOPIC_CMD) {
     if (msg.indexOf("\"restart\"") >= 0) { Serial.println("[MQTT] Reiniciando..."); delay(300); ESP.restart(); }
     if (msg.indexOf("\"reset_id\"") >= 0) {
-      // Força novo registro apagando o ID salvo
       sensorId = ""; registrado = false;
       salvarConfig();
       Serial.println("[MQTT] ID resetado. Reiniciando...");
@@ -341,7 +351,7 @@ void tickMQTT() {
 
   mqtt.loop();
 
-  // Se não registrado, reenvia register a cada REGISTER_TIMEOUT
+  // Se nao registrado, reenvia register a cada REGISTER_TIMEOUT
   if (!registrado) {
     if (agora - t_register >= REGISTER_TIMEOUT) enviarRegister();
     return;
@@ -364,7 +374,7 @@ void tickLED() {
     return;
   }
 
-  // Aguardando registro: ambos piscam rápido
+  // Aguardando registro: ambos piscam rapido
   if (!registrado) {
     if (agora - t_led < 200) return;
     t_led = agora;
@@ -374,12 +384,12 @@ void tickLED() {
     return;
   }
 
-  // Normal: verifica se há alerta de temperatura ou umidade
+  // Normal: verifica se ha alerta de temperatura ou umidade
   bool tempValida  = !isnan(temperaturaAtual) && temperaturaAtual > 0 && temperaturaAtual < 999;
   bool humidValida = !isnan(umidadeAtual)     && umidadeAtual     > 0 && umidadeAtual     <= 100;
   bool emAlerta    = (tempValida  && temperaturaAtual >= limitTemp)
                   || (humidValida && umidadeAtual     >= limitHumid);
-  // DEBUG — imprime a cada 5s
+
   static unsigned long t_dbg = 0;
   if (millis() - t_dbg >= 5000) {
     t_dbg = millis();
@@ -388,14 +398,12 @@ void tickLED() {
   }
 
   if (emAlerta) {
-    // Amarelo pisca rápido (250ms), vermelho apagado
     if (agora - t_led < 250) return;
     t_led = agora;
     ledAceso = !ledAceso;
     digitalWrite(LED_AMARELO_PIN,  ledAceso ? HIGH : LOW);
     digitalWrite(LED_VERMELHO_PIN, LOW);
   } else {
-    // Normal: amarelo pisca devagar (1s), vermelho apagado
     if (agora - t_led < 1000) return;
     t_led = agora;
     ledAceso = !ledAceso;
@@ -409,7 +417,13 @@ void tickNTP() {
   unsigned long agora = millis();
   if (agora - t_ntp < INTERVALO_NTP) return;
   t_ntp = agora;
-  timeClient.update();
+  bool ok = timeClient.update();
+  if (ok) {
+    ntpSincronizado = true;
+  } else {
+    Serial.println("[NTP] Falha ao sincronizar (sem resposta de pool.ntp.org)."
+                    " Verifique se a rede permite UDP porta 123 para a internet.");
+  }
 }
 
 // ══════════════════════════════════════════
@@ -486,9 +500,14 @@ void tickDisplay() {
   display.clearDisplay(); display.setTextSize(1); display.setTextColor(SSD1306_WHITE);
   display.setCursor(3,1);
   char hdr[22];
-  snprintf(hdr, sizeof(hdr), "%02d:%02d:%02d  %s",
-    timeClient.getHours(), timeClient.getMinutes(), timeClient.getSeconds(),
-    registrado ? "REG" : "...");
+  if (ntpSincronizado) {
+    snprintf(hdr, sizeof(hdr), "%02d:%02d:%02d  %s",
+      timeClient.getHours(), timeClient.getMinutes(), timeClient.getSeconds(),
+      registrado ? "REG" : "...");
+  } else {
+    // Sem sincronizar ainda: nao mostrar hora falsa (tempo decorrido desde o boot)
+    snprintf(hdr, sizeof(hdr), "--:--:--  %s", registrado ? "REG" : "...");
+  }
   display.print(hdr);
   display.drawLine(0,11,128,11,SSD1306_WHITE);
 
@@ -522,7 +541,7 @@ input[type=text],input[type=password],input[type=number]{width:100%;padding:9px 
 hr{border:none;border-top:1px solid #1a2236;margin:18px 0;}
 </style></head><body><div class='box'>
 <h2>TH-GUARD</h2>
-<div class='sub'>Configuração do Sensor</div>
+<div class='sub'>Configuracao do Sensor</div>
 <div class='live'>
   <div class='tv'>%TEMP%&deg;C</div>
   <div class='hv'>Umidade: %HUMID%%</div>
@@ -537,8 +556,8 @@ hr{border:none;border-top:1px solid #1a2236;margin:18px 0;}
 </div>
 <form action='/salvar' method='POST'>
 <hr>
-<label>WiFi Primário (SSID)</label><input type='text' name='s1' value='%S1%'>
-<label>Senha Primária</label><input type='password' name='p1' value='%P1%'>
+<label>WiFi Primario (SSID)</label><input type='text' name='s1' value='%S1%'>
+<label>Senha Primaria</label><input type='password' name='p1' value='%P1%'>
 <label>WiFi Backup (SSID)</label><input type='text' name='s2' value='%S2%'>
 <label>Senha Backup</label><input type='password' name='p2' value='%P2%'>
 <hr>
@@ -613,7 +632,7 @@ void verificarBotao() {
 // ══════════════════════════════════════════
 void setup() {
   Serial.begin(115200);
-  Serial.println("\n[TH-GUARD] Boot v4.0 — Registro por MAC");
+  Serial.println("\n[TH-GUARD] Boot v4.0-ESP32 — Registro por MAC");
 
   pinMode(BTN_RESET_PIN,    INPUT_PULLUP);
   pinMode(LED_AMARELO_PIN,  OUTPUT);
@@ -630,9 +649,17 @@ void setup() {
   display.setCursor(20,34); display.println("Iniciando...");
   display.display();
 
-  LittleFS.begin();
+  // true = formata automaticamente se o LittleFS nunca foi inicializado
+  // (necessario no ESP32; no ESP8266 isso ja era o padrao)
+  LittleFS.begin(true);
 
-  // Obtém o MAC do ESP
+  // IMPORTANTE (diferenca ESP32 x ESP8266): no ESP32 o driver Wi-Fi
+  // precisa estar inicializado (WiFi.mode) antes de WiFi.macAddress()
+  // retornar o MAC verdadeiro. Sem isso, o MAC vem zerado (00000000...).
+  WiFi.mode(WIFI_STA);
+  delay(100);
+
+  // Obtem o MAC do ESP
   macAddr = WiFi.macAddress();
   macAddr.replace(":", "");
   macAddr.toUpperCase();
@@ -642,9 +669,28 @@ void setup() {
   dht.begin();
   conectarWifi();
 
+  if (WiFi.status() == WL_CONNECTED) {
+    Serial.println("[WIFI] Gateway: " + WiFi.gatewayIP().toString());
+    Serial.println("[WIFI] DNS: " + WiFi.dnsIP().toString());
+  }
+
   if (!modoAP) {
     timeClient.begin();
-    timeClient.update();
+    Serial.println("[NTP] Sincronizando com servidor NTP (200.160.7.186)...");
+    for (int tentativa = 1; tentativa <= 3 && !ntpSincronizado; tentativa++) {
+      ntpSincronizado = timeClient.update();
+      if (!ntpSincronizado) {
+        Serial.println("[NTP] Tentativa " + String(tentativa) + " falhou.");
+        delay(1000);
+      }
+    }
+    if (ntpSincronizado) {
+      Serial.println("[NTP] Sincronizado: " + timeClient.getFormattedTime());
+    } else {
+      Serial.println("[NTP] Nao sincronizou no boot. Tentara novamente em background."
+                      " Se persistir, verifique se a rede/VLAN do sensor permite"
+                      " trafego de saida UDP porta 123 para a internet.");
+    }
   }
 
   server.on("/",       handleRoot);
@@ -675,5 +721,4 @@ void loop() {
   tickLED();
   tickNTP();
   tickDisplay();
-  yield();
 }
