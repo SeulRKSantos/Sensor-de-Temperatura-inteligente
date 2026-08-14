@@ -39,16 +39,16 @@ graph LR
 ## Pré-requisitos
 
 - Docker e Docker Compose
-- Arduino IDE 2.x com suporte ESP8266
-- Bibliotecas Arduino: ESP8266WiFi, DHT, PubSubClient, Adafruit SSD1306, NTPClient, LittleFS
+- Arduino IDE 2.x com suporte ESP8266 e/ou ESP32
+- Bibliotecas Arduino: DHT, PubSubClient, Adafruit GFX, Adafruit SSD1306, NTPClient
 
 ## Instalação
 
 ### 1 — Clone o repositório
 
 ```bash
-git clone https://github.com/SeulRKSantos/Sensor-de-Temperatura-inteligente-com-sistema-Web.git
-cd Sensor-de-Temperatura-inteligente-com-sistema-Web/thguard
+git clone https://github.com/SeulRKSantos/Sensor-de-Temperatura-inteligente.git
+cd Sensor-de-Temperatura-inteligente/thguard
 ```
 
 ### 2 — Configure as variáveis de ambiente
@@ -58,6 +58,10 @@ cp .env.example .env
 # Edite o .env com suas credenciais
 nano .env
 ```
+
+> **Atenção:** `ALLOWED_ORIGINS` deve conter o endereço pelo qual o painel será
+> acessado (ex: `http://localhost:8081` ou `http://10.10.0.209:8081`).
+> Se a origem não estiver na lista, o login retorna **erro 500**.
 
 ### 3 — Configure o Mosquitto
 
@@ -85,8 +89,19 @@ Login: admin@thguard.local / ***REMOVED***
 
 ## Firmware
 
-O arquivo `firmware/thguard_v4_mac/thguard_v4_mac.ino` é o firmware universal para todos os sensores
-(também disponível em `firmware/thguard_v4_local/`, versão simplificada).
+Sketches disponíveis:
+
+| Pasta | Placa | Uso |
+|---|---|---|
+| `firmware/thguard_v4_mac/` | ESP8266 (NodeMCU) | Firmware universal — registro por MAC |
+| `firmware/thguard_v4_local/` | ESP8266 (NodeMCU) | Versão simplificada |
+| `firmware/thguard_esp32/` | ESP32 DevKit | Port do v4 — mesmo protocolo MQTT |
+
+Todos usam o mesmo protocolo: o sensor publica seu MAC em `thguard/register` e o
+servidor responde em `thguard/<MAC>/config` com o `sensor_id` atribuído.
+
+**Pinagem ESP32:** DHT22 `GPIO4` · OLED `GPIO21/22` (I2C) · LEDs `GPIO25/26` · Botão reset `GPIO27`.
+**Pinagem ESP8266:** DHT22 `GPIO2` · OLED `GPIO5/4` · LEDs `GPIO14/13` · Botão reset `GPIO0`.
 
 ### Configuração
 
