@@ -31,19 +31,28 @@ async function sendAlert(sensorId, alertType, data) {
   }
 
   // Substitui variáveis no assunto e corpo
+  const ind = sensor.kind === 'industrial';
+  const cal = sensor.industrial || require('./industrial').DEFAULTS;
+  const { FAULT_TEXT } = require('./industrial');
   const vars = {
+    '{{voltage}}':     data.voltage != null ? Number(data.voltage).toFixed(2) : '--',
+    '{{fault}}':       FAULT_TEXT[data.fault || 0] || '--',
+    '{{range_min}}':   ind ? String(cal.rangeMin) : '--',
+    '{{range_max}}':   ind ? String(cal.rangeMax) : '--',
+    '{{tag}}':         sensor.tag || '--',
     '{{sensor_id}}':   sensorId,
     '{{sensor_name}}': sensor.name,
     '{{location}}':    sensor.location,
-    '{{temperature}}': data.temperature != null ? String(data.temperature.toFixed(1)) : '--',
-    '{{humidity}}':    data.humidity != null ? String(data.humidity.toFixed(1)) : '--',
+    '{{temperature}}': data.temperature != null ? Number(data.temperature).toFixed(1) : '--',
+    '{{humidity}}':    data.humidity != null ? Number(data.humidity).toFixed(1) : '--',
     '{{temp_limit}}':  String(sensor.tempLimit),
     '{{humid_limit}}': String(sensor.humidLimit),
     '{{datetime}}':    new Date().toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo' }),
   };
 
-  let subject = alertCfg.subject || defaultSubject(alertType);
-  let body    = alertCfg.body    || defaultBody(alertType);
+  const kind = sensor.kind || 'thguard';
+  let subject = alertCfg.subject || defaultSubject(alertType, kind);
+  let body    = alertCfg.body    || defaultBody(alertType, kind);
 
   Object.entries(vars).forEach(([k, v]) => {
     subject = subject.replaceAll(k, v);
@@ -80,7 +89,7 @@ async function sendAlert(sensorId, alertType, data) {
         if (rows.length > 0) {
           attachments.push({
             filename:    `relatorio_diario_${sensorId}_${now}.csv`,
-            content:     Buffer.from('\uFEFF' + rowsToCSV(rows, 'daily'), 'utf8'),
+            content:     Buffer.from('\uFEFF' + rowsToCSV(rows, 'daily', sensorId), 'utf8'),
             contentType: 'text/csv; charset=utf-8'
           });
         }
@@ -101,7 +110,7 @@ async function sendAlert(sensorId, alertType, data) {
         if (rows.length > 0) {
           attachments.push({
             filename:    `relatorio_semanal_${sensorId}_${now}.csv`,
-            content:     Buffer.from('\uFEFF' + rowsToCSV(rows, 'weekly'), 'utf8'),
+            content:     Buffer.from('\uFEFF' + rowsToCSV(rows, 'weekly', sensorId), 'utf8'),
             contentType: 'text/csv; charset=utf-8'
           });
         }
@@ -122,7 +131,7 @@ async function sendAlert(sensorId, alertType, data) {
         if (rows.length > 0) {
           attachments.push({
             filename:    `relatorio_mensal_${sensorId}_${now}.csv`,
-            content:     Buffer.from('\uFEFF' + rowsToCSV(rows, 'monthly'), 'utf8'),
+            content:     Buffer.from('\uFEFF' + rowsToCSV(rows, 'monthly', sensorId), 'utf8'),
             contentType: 'text/csv; charset=utf-8'
           });
         }
@@ -153,7 +162,7 @@ async function sendAlert(sensorId, alertType, data) {
 }
 
 // ── Textos padrão por tipo de alerta ──────────────────────────────
-function defaultSubject(type) {
+function defaultSubject(type, kind = 'thguard') {
   const s = {
     temp_high:    '⚠️ ALERTA: Temperatura acima do limite — {{sensor_name}}',
     humid_high:   '⚠️ ALERTA: Umidade acima do limite — {{sensor_name}}',
@@ -161,6 +170,8 @@ function defaultSubject(type) {
     temp_normal:  '✅ Temperatura normalizada — {{sensor_name}}',
     humid_normal: '✅ Umidade normalizada — {{sensor_name}}',
     sensor_online:'🟢 Sensor online — {{sensor_name}}',
+    sensor_fault: '🛠️ FALHA NO SENSOR — {{sensor_name}}',
+    fault_cleared:'✅ Falha do sensor normalizada — {{sensor_name}}',
     daily:        '📊 Relatório Diário — {{sensor_name}}',
     weekly:       '📊 Relatório Semanal — {{sensor_name}}',
     monthly:      '📊 Relatório Mensal — {{sensor_name}}',
@@ -168,7 +179,22 @@ function defaultSubject(type) {
   return s[type] || 'Alerta TH-GUARD — {{sensor_name}}';
 }
 
-function defaultBody(type) {
+function defaultBody(type, kind = 'thguard') {
+  if (kind === 'industrial') {
+    const head = 'Sensor: {{sensor_name}} ({{sensor_id}})\nLocal: {{location}}\nGrupo: {{tag}}\n';
+    const bi = {
+      temp_high:     head + 'Temperatura atual: {{temperature}}°C\nLimite configurado: {{temp_limit}}°C\nTensão do transmissor: {{voltage}} V\nData/Hora: {{datetime}}',
+      temp_normal:   head + 'Temperatura normalizada: {{temperature}}°C\nLimite configurado: {{temp_limit}}°C\nData/Hora: {{datetime}}',
+      sensor_fault:  head + 'Falha detectada: {{fault}}\nTensão do transmissor: {{voltage}} V\nFaixa configurada: {{range_min}} a {{range_max}}°C\nVerifique o PT100, o transmissor e a fiação.\nData/Hora: {{datetime}}',
+      fault_cleared: head + 'O sinal do sensor voltou ao normal.\nTemperatura atual: {{temperature}}°C\nTensão do transmissor: {{voltage}} V\nData/Hora: {{datetime}}',
+      sensor_offline:head + 'O sensor está offline ou não está enviando dados.\nData/Hora: {{datetime}}',
+      sensor_online: head + 'O sensor voltou a enviar dados.\nData/Hora: {{datetime}}',
+      daily:         head + 'Relatório diário de monitoramento.\nFaixa configurada: {{range_min}} a {{range_max}}°C\nData/Hora: {{datetime}}',
+      weekly:        head + 'Relatório semanal de monitoramento.\nData/Hora: {{datetime}}',
+      monthly:       head + 'Relatório mensal de monitoramento.\nData/Hora: {{datetime}}',
+    };
+    if (bi[type]) return bi[type];
+  }
   const b = {
     temp_high:    'Sensor: {{sensor_name}}\nLocal: {{location}}\nTemperatura atual: {{temperature}}°C\nLimite configurado: {{temp_limit}}°C\nData/Hora: {{datetime}}',
     humid_high:   'Sensor: {{sensor_name}}\nLocal: {{location}}\nUmidade atual: {{humidity}}%\nLimite configurado: {{humid_limit}}%\nData/Hora: {{datetime}}',

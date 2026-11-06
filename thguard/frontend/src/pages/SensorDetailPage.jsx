@@ -32,6 +32,7 @@ export default function SensorDetailPage() {
 
   useEffect(() => {
     api.getSensor(id, getToken()).then(s => {
+      if (s.kind === 'industrial') { navigate(`/industrial/sensor/${id}`, { replace: true }); return }
       setSensor(s)
       setConfig({ name: s.name, location: s.location, tempLimit: s.tempLimit, humidLimit: s.humidLimit, tag: s.tag || '' })
     })

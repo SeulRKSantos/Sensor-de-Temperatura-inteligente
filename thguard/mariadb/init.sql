@@ -10,6 +10,9 @@ CREATE TABLE IF NOT EXISTS users (
 CREATE TABLE IF NOT EXISTS sensors (
   id           VARCHAR(50)  PRIMARY KEY,
   mac          VARCHAR(20)  UNIQUE,
+  kind         VARCHAR(20)  NOT NULL DEFAULT 'thguard',
+  model        VARCHAR(30),
+  fw           VARCHAR(30),
   name         VARCHAR(100) NOT NULL,
   location     VARCHAR(200) NOT NULL DEFAULT 'Sem localizacao',
   tag          VARCHAR(50),
@@ -28,6 +31,23 @@ CREATE TABLE IF NOT EXISTS user_tags (
   tag     VARCHAR(50) NOT NULL,
   PRIMARY KEY (user_id, tag),
   FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+);
+
+-- Calibracao dos sensores industriais (VA01). Editada pelo painel, aba Industrial.
+CREATE TABLE IF NOT EXISTS industrial_config (
+  sensor_id   VARCHAR(50) NOT NULL PRIMARY KEY,
+  range_min   DOUBLE NOT NULL DEFAULT 0,
+  range_max   DOUBLE NOT NULL DEFAULT 150,
+  v_full      DOUBLE NOT NULL DEFAULT 10,
+  divisor     DOUBLE NOT NULL DEFAULT 5,
+  offset_mv   DOUBLE NOT NULL DEFAULT -16,
+  gain        DOUBLE NOT NULL DEFAULT 1,
+  offset_temp DOUBLE NOT NULL DEFAULT 0,
+  fault_v     DOUBLE NOT NULL DEFAULT 10.5,
+  low_v       DOUBLE NOT NULL DEFAULT 0.05,
+  interval_s  INT   NOT NULL DEFAULT 5,
+  updated_at  DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  FOREIGN KEY (sensor_id) REFERENCES sensors(id) ON DELETE CASCADE
 );
 
 CREATE TABLE IF NOT EXISTS sensor_alerts (

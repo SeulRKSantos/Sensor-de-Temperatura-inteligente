@@ -12,7 +12,7 @@ export default function DashboardPage() {
   const navigate = useNavigate()
 
   useEffect(() => {
-    api.getSensors(getToken()).then(setSensors).catch(console.error)
+    api.getSensors(getToken(), 'thguard').then(setSensors).catch(console.error)
   }, [])
 
   const handleMsg = useCallback((msg) => {
@@ -24,7 +24,9 @@ export default function DashboardPage() {
     }
     if (msg.type === 'status') {
       setSensors(prev => prev.map(s =>
-        s.id === msg.sensorId ? { ...s, online: true, lastSeen: new Date().toISOString(), ip: msg.ip, ssid: msg.ssid } : s
+        s.id !== msg.sensorId ? s
+          : msg.online === false ? { ...s, online: false }   // aviso de offline do servidor
+          : { ...s, online: true, lastSeen: new Date().toISOString(), ip: msg.ip ?? s.ip, ssid: msg.ssid ?? s.ssid }
       ))
     }
     if (msg.type === 'alert') {

@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { Outlet, NavLink, useNavigate } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
-import { Thermometer, Users, LogOut, Activity, Bell, BarChart2, Menu, X } from 'lucide-react'
+import { Thermometer, Users, LogOut, Activity, Bell, BarChart2, Menu, X, Factory } from 'lucide-react'
 import { useRealtimeData } from '../hooks/useRealtimeData'
 
 export default function Layout() {
@@ -29,9 +29,17 @@ export default function Layout() {
       </div>
 
       <nav style={{ flex: 1, padding: '16px 12px', display: 'flex', flexDirection: 'column', gap: 4 }}>
+        <div style={sectionStyle}>Ambiente (TH-GUARD)</div>
         <NavLink to="/" end style={navStyle} onClick={closeMenu}><Activity size={15} /> Dashboard</NavLink>
         {can(['admin','editor']) && <NavLink to="/alerts" style={navStyle} onClick={closeMenu}><Bell size={15} /> Alertas</NavLink>}
         {can(['admin','editor']) && <NavLink to="/reports" style={navStyle} onClick={closeMenu}><BarChart2 size={15} /> Relatórios</NavLink>}
+
+        <div style={{ ...sectionStyle, marginTop: 14 }}>Industrial</div>
+        <NavLink to="/industrial" end style={navStyle} onClick={closeMenu}><Factory size={15} /> Painel industrial</NavLink>
+        {can(['admin','editor']) && <NavLink to="/industrial/alerts" style={navStyle} onClick={closeMenu}><Bell size={15} /> Alertas</NavLink>}
+        {can(['admin','editor']) && <NavLink to="/industrial/reports" style={navStyle} onClick={closeMenu}><BarChart2 size={15} /> Relatórios</NavLink>}
+
+        {can(['admin']) && <div style={{ ...sectionStyle, marginTop: 14 }}>Administração</div>}
         {can(['admin']) && <NavLink to="/users" style={navStyle} onClick={closeMenu}><Users size={15} /> Usuários</NavLink>}
       </nav>
 
@@ -124,6 +132,11 @@ export default function Layout() {
       </main>
     </div>
   )
+}
+
+const sectionStyle = {
+  fontSize: 9, color: 'var(--muted)', fontFamily: 'var(--font-mono)', textTransform: 'uppercase',
+  letterSpacing: 1.2, padding: '4px 12px 2px', opacity: 0.8
 }
 
 function navStyle({ isActive }) {

@@ -5,8 +5,13 @@ const { sendAlert, defaultSubject, defaultBody } = require('../services/email');
 const { getAlertState } = require('../services/alertManager');
 const { queryHistory, queryStats } = require('../services/influx');
 
-const ALERT_TYPES = ['temp_high','humid_high','sensor_offline','temp_normal',
-                     'humid_normal','sensor_online','daily','weekly','monthly'];
+const ALERT_TYPES = {
+  thguard:    ['temp_high','humid_high','sensor_offline','temp_normal',
+               'humid_normal','sensor_online','daily','weekly','monthly'],
+  industrial: ['temp_high','temp_normal','sensor_fault','fault_cleared',
+               'sensor_offline','sensor_online','daily','weekly','monthly'],
+};
+const typesOf = (sensor) => ALERT_TYPES[sensor.kind] || ALERT_TYPES.thguard;
 
 // Middleware — valida acesso ao sensor da URL com base na tag do usuario
 async function checkSensorAccess(req, res, next) {
@@ -45,10 +50,10 @@ router.get('/:sensorId', auth(), checkSensorAccess, async (req, res) => {
   try {
     const saved = await db.getSensorAlerts(req.params.sensorId);
     const alerts = {};
-    ALERT_TYPES.forEach(t => {
+    typesOf(req.sensor).forEach(t => {
       alerts[t] = {
         enabled: false, to:'', cc:'', bcc:'',
-        subject: defaultSubject(t), body: defaultBody(t),
+        subject: defaultSubject(t, req.sensor.kind), body: defaultBody(t, req.sensor.kind),
         ...(saved[t]||{})
       };
     });
@@ -58,14 +63,23 @@ router.get('/:sensorId', auth(), checkSensorAccess, async (req, res) => {
 
 router.put('/:sensorId', auth(['admin','editor']), checkSensorAccess, async (req, res) => {
   try {
-    await db.saveSensorAlerts(req.params.sensorId, req.body);
+    // Aceita apenas os tipos validos para o tipo de sensor
+    const valid = typesOf(req.sensor);
+    const body = {};
+    Object.entries(req.body || {}).forEach(([t, cfg]) => { if (valid.includes(t)) body[t] = cfg; });
+    await db.saveSensorAlerts(req.params.sensorId, body);
     res.json({ ok: true });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
 router.post('/:sensorId/test/:type', auth(['admin','editor']), checkSensorAccess, async (req, res) => {
   try {
-    await sendAlert(req.params.sensorId, req.params.type, { temperature:26.5, humidity:85 });
+    if (!typesOf(req.sensor).includes(req.params.type))
+      return res.status(400).json({ error: 'Tipo de alerta invalido para este sensor' });
+    const sample = req.sensor.kind === 'industrial'
+      ? { temperature: 85.0, voltage: 5.67, fault: req.params.type === 'sensor_fault' ? 1 : 0 }
+      : { temperature: 26.5, humidity: 85 };
+    await sendAlert(req.params.sensorId, req.params.type, sample);
     res.json({ ok: true });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
@@ -86,8 +100,10 @@ router.get('/:sensorId/report/:period', auth(), checkSensorAccess, async (req, r
   try {
     const data = await queryHistory(req.params.sensorId, range);
     if (req.query.format === 'csv') {
-      const csv = ['timestamp,temperature,humidity',
-        ...data.map(r => `${r.ts},${r.temperature??''},${r.humidity??''}`)
+      const ind = req.sensor.kind === 'industrial';
+      const second = ind ? 'voltage' : 'humidity';
+      const csv = [`timestamp,temperature,${second}`,
+        ...data.map(r => `${r.ts},${r.temperature??''},${r[second]??''}`)
       ].join('\n');
       res.setHeader('Content-Type','text/csv');
       res.setHeader('Content-Disposition',

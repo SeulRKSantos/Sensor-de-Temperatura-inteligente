@@ -1,9 +1,9 @@
 import { useState, useEffect } from 'react'
 import { useAuth } from '../context/AuthContext'
 import { api } from '../hooks/api'
-import { Bell, Mail, Settings, Send, CheckCircle, Clock, Thermometer, Droplets, WifiOff, ChevronDown, ChevronUp } from 'lucide-react'
+import { Bell, Mail, Settings, Send, CheckCircle, Clock, Thermometer, Droplets, WifiOff, ChevronDown, ChevronUp, AlertTriangle } from 'lucide-react'
 
-const ALERT_TYPES = [
+const ALERT_TYPES_THGUARD = [
   { key: 'temp_high',      label: 'Temperatura Alta',     icon: <Thermometer size={14} />, color: 'var(--danger)' },
   { key: 'temp_normal',    label: 'Temperatura Normal',   icon: <Thermometer size={14} />, color: 'var(--ok)' },
   { key: 'humid_high',     label: 'Umidade Alta',         icon: <Droplets size={14} />,    color: 'var(--accent2)' },
@@ -15,7 +15,26 @@ const ALERT_TYPES = [
   { key: 'monthly',        label: 'Relatório Mensal',     icon: <Mail size={14} />,        color: 'var(--muted)' },
 ]
 
-export default function AlertsPage() {
+// Sensores industriais (VA01): sem umidade; com falha de sinal do transmissor
+const ALERT_TYPES_INDUSTRIAL = [
+  { key: 'temp_high',      label: 'Temperatura Alta',        icon: <Thermometer size={14} />,   color: 'var(--danger)' },
+  { key: 'temp_normal',    label: 'Temperatura Normal',      icon: <Thermometer size={14} />,   color: 'var(--ok)' },
+  { key: 'sensor_fault',   label: 'Falha no Sensor (upscale / sem sinal)', icon: <AlertTriangle size={14} />, color: 'var(--danger)' },
+  { key: 'fault_cleared',  label: 'Falha Normalizada',       icon: <AlertTriangle size={14} />, color: 'var(--ok)' },
+  { key: 'sensor_offline', label: 'Sensor Offline',          icon: <WifiOff size={14} />,       color: 'var(--warn)' },
+  { key: 'sensor_online',  label: 'Sensor Online',           icon: <Bell size={14} />,          color: 'var(--ok)' },
+  { key: 'daily',          label: 'Relatório Diário',        icon: <Mail size={14} />,          color: 'var(--muted)' },
+  { key: 'weekly',         label: 'Relatório Semanal',       icon: <Mail size={14} />,          color: 'var(--muted)' },
+  { key: 'monthly',        label: 'Relatório Mensal',        icon: <Mail size={14} />,          color: 'var(--muted)' },
+]
+
+const VARS = {
+  thguard:    '{{sensor_name}} {{temperature}} {{humidity}} {{datetime}} {{location}} {{temp_limit}} {{humid_limit}}',
+  industrial: '{{sensor_name}} {{sensor_id}} {{temperature}} {{voltage}} {{fault}} {{temp_limit}} {{range_min}} {{range_max}} {{location}} {{tag}} {{datetime}}',
+}
+
+export default function AlertsPage({ kind = 'thguard' }) {
+  const ALERT_TYPES = kind === 'industrial' ? ALERT_TYPES_INDUSTRIAL : ALERT_TYPES_THGUARD
   const { getToken, can } = useAuth()
   const [sensors, setSensors]     = useState([])
   const [selected, setSelected]   = useState(null)
@@ -29,7 +48,7 @@ export default function AlertsPage() {
   const [testing, setTesting]     = useState(null)
 
   useEffect(() => {
-    api.getSensors(getToken()).then(setSensors)
+    api.getSensors(getToken(), kind).then(setSensors)
     if (can(['admin'])) api.getSmtp(getToken()).then(setSmtp)
   }, [])
 
@@ -86,7 +105,7 @@ export default function AlertsPage() {
   return (
     <div>
       <div style={{ marginBottom: 24 }}>
-        <h1 style={{ fontSize: 20, fontWeight: 600 }}>Alertas & Notificações</h1>
+        <h1 style={{ fontSize: 20, fontWeight: 600 }}>{kind === 'industrial' ? 'Alertas — Sensores Industriais' : 'Alertas & Notificações'}</h1>
         <p style={{ color: 'var(--muted)', fontSize: 13, marginTop: 2 }}>
           Configure emails de alerta por sensor
         </p>
@@ -98,6 +117,9 @@ export default function AlertsPage() {
           <div style={{ fontSize: 10, color: 'var(--muted)', fontFamily: 'var(--font-mono)', textTransform: 'uppercase', letterSpacing: 1, marginBottom: 10 }}>
             Sensores
           </div>
+          {sensors.length === 0 && (
+            <div style={{ fontSize: 12, color: 'var(--muted)', padding: '6px 4px' }}>Nenhum sensor disponível.</div>
+          )}
           {sensors.map(s => (
             <button key={s.id} onClick={() => setSelected(s.id)} style={{
               display: 'block', width: '100%', textAlign: 'left',
@@ -191,7 +213,7 @@ export default function AlertsPage() {
                               <label style={lblStyle}>
                                 Corpo do email
                                 <span style={{ color: 'var(--muted)', marginLeft: 8, fontWeight: 400 }}>
-                                  variáveis: {'{{sensor_name}} {{temperature}} {{humidity}} {{datetime}} {{location}} {{temp_limit}} {{humid_limit}}'}
+                                  variáveis: {VARS[kind] || VARS.thguard}
                                 </span>
                               </label>
                               <textarea value={cfg.body || ''} onChange={e => updateAlert(key, 'body', e.target.value)}

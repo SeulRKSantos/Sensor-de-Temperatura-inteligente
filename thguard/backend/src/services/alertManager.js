@@ -11,7 +11,7 @@ const ALERT_REPEAT_INTERVAL = 30 * 60 * 1000;  // reenvio a cada 30 min se persi
 const NORMALIZE_DEBOUNCE = 3 * 60 * 1000;       // 3 min abaixo do limite p/ normalizar
 
 // Chamado pelo mqtt.js a cada leitura recebida
-async function processReading(sensorId, temperature, humidity) {
+async function processReading(sensorId, temperature, humidity, extra = {}) {
   const sensor = await db.getSensorById(sensorId);
   if (!sensor) return;
 
@@ -35,7 +35,7 @@ async function processReading(sensorId, temperature, humidity) {
     console.log(`[ALERT] ${sensorId} voltou online`);
     await db.updateSensor(sensorId, { online: true });
     broadcast({ type: 'status', sensorId, online: true });
-    await sendAlert(sensorId, 'sensor_online', { temperature, humidity });
+    await sendAlert(sensorId, 'sensor_online', { ...extra, temperature, humidity });
   }
 
   // ── Temperatura ───────────────────────────────────────────────────
@@ -49,12 +49,12 @@ async function processReading(sensorId, temperature, humidity) {
       s.tempHighSince = now;
       s.lastTempAlert = now;
       console.log(`[ALERT] ${sensorId} TEMP ALTA: ${temperature}°C`);
-      await sendAlert(sensorId, 'temp_high', { temperature, humidity });
+      await sendAlert(sensorId, 'temp_high', { ...extra, temperature, humidity });
     } else if (now - s.lastTempAlert >= ALERT_REPEAT_INTERVAL) {
       // Persiste — reenvia
       s.lastTempAlert = now;
       console.log(`[ALERT] ${sensorId} TEMP continua alta: ${temperature}°C`);
-      await sendAlert(sensorId, 'temp_high', { temperature, humidity });
+      await sendAlert(sensorId, 'temp_high', { ...extra, temperature, humidity });
     }
   } else {
     if (s.tempHigh) {
@@ -65,13 +65,13 @@ async function processReading(sensorId, temperature, humidity) {
         s.tempHigh = false;
         s.tempLowSince = null;
         console.log(`[ALERT] ${sensorId} TEMP normalizada: ${temperature}°C`);
-        await sendAlert(sensorId, 'temp_normal', { temperature, humidity });
+        await sendAlert(sensorId, 'temp_normal', { ...extra, temperature, humidity });
       }
     }
   }
 
   // ── Umidade ───────────────────────────────────────────────────────
-  const humidAlta = humidity >= sensor.humidLimit;
+  const humidAlta = humidity != null && humidity >= sensor.humidLimit;
 
   if (humidAlta) {
     s.humidLowSince = null;
@@ -79,10 +79,10 @@ async function processReading(sensorId, temperature, humidity) {
       s.humidHigh = true;
       s.lastHumidAlert = now;
       console.log(`[ALERT] ${sensorId} UMIDADE ALTA: ${humidity}%`);
-      await sendAlert(sensorId, 'humid_high', { temperature, humidity });
+      await sendAlert(sensorId, 'humid_high', { ...extra, temperature, humidity });
     } else if (now - s.lastHumidAlert >= ALERT_REPEAT_INTERVAL) {
       s.lastHumidAlert = now;
-      await sendAlert(sensorId, 'humid_high', { temperature, humidity });
+      await sendAlert(sensorId, 'humid_high', { ...extra, temperature, humidity });
     }
   } else {
     if (s.humidHigh) {
@@ -92,12 +92,86 @@ async function processReading(sensorId, temperature, humidity) {
         s.humidHigh = false;
         s.humidLowSince = null;
         console.log(`[ALERT] ${sensorId} UMIDADE normalizada: ${humidity}%`);
-        await sendAlert(sensorId, 'humid_normal', { temperature, humidity });
+        await sendAlert(sensorId, 'humid_normal', { ...extra, temperature, humidity });
       }
     }
   }
 
-  await db.updateSensor(sensorId, { alertActive: s.tempHigh || s.humidHigh ? 1 : 0 });
+  await db.updateSensor(sensorId, { alertActive: s.tempHigh || s.humidHigh || s.faultActive ? 1 : 0 });
+}
+
+// ── Sensores industriais ───────────────────────────────────────────
+// r = resultado de industrial.convert(): { temperature, voltage, mv, fault, faultLabel }
+// - temperatura: mesma logica do TH-GUARD (limite, reenvio a cada 30 min, debounce de 3 min)
+// - falha (upscale / sem sinal): alerta "sensor_fault" e "fault_cleared" ao normalizar
+const FAULT_CONFIRM = 3;   // leituras seguidas com falha antes de alertar (evita ruido)
+const { FAULT_TEXT } = require('./industrial');
+
+async function processIndustrial(sensorId, r) {
+  const data = { temperature: r.temperature, voltage: r.voltage, fault: r.fault };
+
+  if (r.temperature != null) {
+    await processReading(sensorId, r.temperature, null, data);
+  } else {
+    // Upscale: sem temperatura valida, mas o sensor esta vivo
+    await touch(sensorId, data);
+  }
+
+  const s = alertState[sensorId];
+  const now = Date.now();
+  if (r.fault) {
+    s.faultCount = (s.faultCount || 0) + 1;
+    s.faultOkCount = 0;
+    if (!s.faultActive && s.faultCount >= FAULT_CONFIRM) {
+      s.faultActive = true;
+      s.faultType = r.fault;
+      s.lastFaultAlert = now;
+      console.log(`[ALERT] ${sensorId} FALHA: ${FAULT_TEXT[r.fault]} (V=${r.voltage})`);
+      await sendAlert(sensorId, 'sensor_fault', data);
+    } else if (s.faultActive && now - (s.lastFaultAlert || 0) >= ALERT_REPEAT_INTERVAL) {
+      s.lastFaultAlert = now;
+      await sendAlert(sensorId, 'sensor_fault', data);
+    }
+  } else {
+    s.faultCount = 0;
+    if (s.faultActive) {
+      s.faultOkCount = (s.faultOkCount || 0) + 1;
+      if (s.faultOkCount >= FAULT_CONFIRM) {
+        s.faultActive = false;
+        s.faultType = null;
+        console.log(`[ALERT] ${sensorId} falha normalizada (V=${r.voltage})`);
+        await sendAlert(sensorId, 'fault_cleared', data);
+      }
+    }
+  }
+  await db.updateSensor(sensorId, { alertActive: s.tempHigh || s.faultActive ? 1 : 0 });
+}
+
+// Marca o sensor como vivo sem avaliar temperatura
+async function touch(sensorId, data) {
+  const s = ensureState(sensorId);
+  s.lastSeen = Date.now();
+  if (s.offline) {
+    s.offline = false;
+    console.log(`[ALERT] ${sensorId} voltou online`);
+    await db.updateSensor(sensorId, { online: true });
+    broadcast({ type: 'status', sensorId, online: true });
+    await sendAlert(sensorId, 'sensor_online', data || {});
+  }
+}
+
+function ensureState(sensorId) {
+  if (!alertState[sensorId]) {
+    alertState[sensorId] = {
+      tempHigh: false, humidHigh: false, offline: false,
+      lastSeen: Date.now(),
+      tempHighSince: null, humidHighSince: null,
+      tempLowSince: null, humidLowSince: null,
+      lastTempAlert: 0, lastHumidAlert: 0,
+      faultActive: false, faultType: null, faultCount: 0, faultOkCount: 0, lastFaultAlert: 0,
+    };
+  }
+  return alertState[sensorId];
 }
 
 // Checker de offline — roda a cada minuto
@@ -149,4 +223,4 @@ function getAlertState() {
   return alertState;
 }
 
-module.exports = { processReading, startOfflineChecker, getAlertState };
+module.exports = { processReading, processIndustrial, startOfflineChecker, getAlertState };

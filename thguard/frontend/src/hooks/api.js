@@ -43,7 +43,7 @@ export const api = {
   login:         (email, password) => req('POST', '/auth/login', { email, password }),
   me:            (t) => req('GET', '/auth/me', null, t),
 
-  getSensors:    (t) => req('GET', '/sensors', null, t),
+  getSensors:    (t, kind) => req('GET', '/sensors' + (kind ? `?kind=${kind}` : ''), null, t),
   getTags:       (t) => req('GET', '/sensors/meta/tags', null, t),
   getSensor:     (id, t) => req('GET', `/sensors/${id}`, null, t),
   updateSensor:  (id, body, t) => req('PATCH', `/sensors/${id}`, body, t),

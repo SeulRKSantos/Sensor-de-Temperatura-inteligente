@@ -32,7 +32,9 @@ graph LR
 - Gráficos históricos com múltiplos ranges (1h, 6h, 24h, 7d)
 - Alertas por email (temperatura alta, umidade alta, sensor offline)
 - Relatórios diário/semanal/mensal com CSV anexo
-- Controle de acesso por roles (admin, editor, viewer)
+- Controle de acesso por roles (admin, editor, viewer) e por grupo (tag) de sensores
+- Sensores industriais (VA01, PT100 0–10 V) em seção própria do painel, com calibração
+  editável (faixa / temperatura de relação, offsets, limiares de falha) — ver [docs/INDUSTRIAL.md](docs/INDUSTRIAL.md)
 - Autenticação MQTT por usuário/senha com controle de ACL por tópico
 - Interface responsiva (desktop e mobile)
 
@@ -96,12 +98,17 @@ Sketches disponíveis:
 | `firmware/thguard_v4_mac/` | ESP8266 (NodeMCU) | Firmware universal — registro por MAC |
 | `firmware/thguard_v4_local/` | ESP8266 (NodeMCU) | Versão simplificada |
 | `firmware/thguard_esp32/` | ESP32 DevKit | Port do v4 — mesmo protocolo MQTT |
+| `firmware/va01_industrial/` | ESP32 DevKit | Sensor industrial VA01 (PT100 → TxIsoRail 0–10 V → GPIO34) |
 
 Todos usam o mesmo protocolo: o sensor publica seu MAC em `thguard/register` e o
 servidor responde em `thguard/<MAC>/config` com o `sensor_id` atribuído.
 
 **Pinagem ESP32:** DHT22 `GPIO4` · OLED `GPIO21/22` (I2C) · LEDs `GPIO25/26` · Botão reset `GPIO27`.
 **Pinagem ESP8266:** DHT22 `GPIO2` · OLED `GPIO5/4` · LEDs `GPIO14/13` · Botão reset `GPIO0`.
+**Pinagem VA01:** módulo 0–25 V `S` → `GPIO34` · `−` → `GND` · reset de fábrica: segurar `BOOT` 6 s.
+
+O VA01 se registra com `"kind":"industrial"` e recebe IDs `ind-001`, `ind-002`...
+Ele envia a tensão no pino; a conversão para °C é feita no servidor.
 
 ### Configuração
 
@@ -137,12 +144,14 @@ thguard/
 │   └── src/
 │       ├── models/       ← MariaDB (db.js, migrate.js)
 │       ├── routes/       ← auth, sensors, alerts, users
-│       └── services/     ← mqtt, influx, email, alertManager
+│       └── services/     ← mqtt, influx, email, alertManager, industrial
 ├── frontend/             ← React + Vite
 │   └── src/
-│       ├── pages/        ← Dashboard, Sensores, Alertas, Relatórios
+│       ├── pages/        ← Dashboard, Sensores, Industrial, Alertas, Relatórios
+│       ├── lib/          ← conversão do sensor industrial (pré-visualização)
 │       └── components/   ← Layout, navegação
-├── firmware/             ← Firmware ESP8266
+├── docs/                 ← Documentação (sensores industriais)
+├── firmware/             ← Firmware ESP8266 / ESP32 / VA01
 ├── mariadb/              ← Schema SQL inicial
 ├── mosquitto/config/     ← Configuração do broker MQTT
 ├── nginx/                ← Configuração do proxy reverso

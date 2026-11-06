@@ -48,6 +48,15 @@ app.use('/api/alerts', alertRoutes);
 
 app.get('/api/health', (req, res) => res.json({ status: 'ok', ts: Date.now() }));
 
+// Atualiza o schema do banco (colunas/tabela dos sensores industriais) antes de tudo
+const db = require('./models/db');
+(function migrar(t = 1) {
+  db.schema().catch(() => {
+    if (t < 20) setTimeout(() => migrar(t + 1), 5000);
+    else console.error('[DB] Nao foi possivel atualizar o schema. Verifique o MariaDB.');
+  });
+})();
+
 setupWebSocket(server);
 connectMQTT();
 startOfflineChecker();

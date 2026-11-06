@@ -10,7 +10,9 @@ const PERIODS = [
   { key: 'annual',     label: 'Anual (12 meses)',    range: '8760h' },
 ]
 
-export default function ReportsPage() {
+export default function ReportsPage({ kind = 'thguard' }) {
+  const ind = kind === 'industrial'
+  const f2 = ind ? 'voltage' : 'humidity'   // segunda serie: tensao do transmissor ou umidade
   const { getToken } = useAuth()
   const [sensors, setSensors]   = useState([])
   const [selected, setSelected] = useState(null)
@@ -19,7 +21,7 @@ export default function ReportsPage() {
   const [stats, setStats]       = useState({})
   const [loading, setLoading]   = useState(false)
 
-  useEffect(() => { api.getSensors(getToken()).then(setSensors) }, [])
+  useEffect(() => { api.getSensors(getToken(), kind).then(setSensors) }, [])
 
   useEffect(() => { if (selected) loadData() }, [selected, period])
 
@@ -43,12 +45,12 @@ export default function ReportsPage() {
       const day = new Date(r.ts).toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' })
       if (!byDay[day]) byDay[day] = { temps: [], humids: [], day }
       if (r.temperature != null) byDay[day].temps.push(r.temperature)
-      if (r.humidity    != null) byDay[day].humids.push(r.humidity)
+      if (r[f2]         != null) byDay[day].humids.push(r[f2])
     })
     return Object.values(byDay).map(d => ({
       day:         d.day,
       temperature: d.temps.length  ? +(d.temps.reduce((a,b)=>a+b,0)  / d.temps.length).toFixed(1)  : null,
-      humidity:    d.humids.length ? +(d.humids.reduce((a,b)=>a+b,0) / d.humids.length).toFixed(1) : null,
+      [f2]:        d.humids.length ? +(d.humids.reduce((a,b)=>a+b,0) / d.humids.length).toFixed(ind ? 2 : 1) : null,
     }))
   }
 
@@ -68,7 +70,7 @@ export default function ReportsPage() {
   return (
     <div>
       <div style={{ marginBottom: 24 }}>
-        <h1 style={{ fontSize: 20, fontWeight: 600 }}>Relatórios</h1>
+        <h1 style={{ fontSize: 20, fontWeight: 600 }}>{ind ? 'Relatórios — Sensores Industriais' : 'Relatórios'}</h1>
         <p style={{ color: 'var(--muted)', fontSize: 13, marginTop: 2 }}>
           Histórico mensal, semestral e anual por sensor
         </p>
@@ -121,7 +123,9 @@ export default function ReportsPage() {
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12, marginBottom: 20 }}>
             {[
               { label: 'Média Temperatura', value: stats.temperature != null ? stats.temperature.toFixed(1) + '°C' : '--', color: 'var(--temp)' },
-              { label: 'Média Umidade',     value: stats.humidity    != null ? stats.humidity.toFixed(1)    + '%'  : '--', color: 'var(--accent2)' },
+              ind
+                ? { label: 'Média Tensão Tx', value: stats.voltage  != null ? stats.voltage.toFixed(2)  + ' V' : '--', color: 'var(--accent2)' }
+                : { label: 'Média Umidade',   value: stats.humidity != null ? stats.humidity.toFixed(1) + '%'  : '--', color: 'var(--accent2)' },
               { label: 'Pontos de dados',   value: data.length,                                                             color: 'var(--muted)' },
               { label: 'Período',           value: PERIODS.find(p => p.key === period)?.label,                              color: 'var(--muted)' },
             ].map(({ label, value, color }) => (
@@ -156,7 +160,7 @@ export default function ReportsPage() {
                   />
                   <Legend wrapperStyle={{ fontSize: 12, color: 'var(--muted)' }} />
                   <Line yAxisId="t" type="monotone" dataKey="temperature" stroke="var(--temp)"    dot={false} name="Temp °C"   strokeWidth={2} connectNulls />
-                  <Line yAxisId="h" type="monotone" dataKey="humidity"    stroke="var(--accent2)" dot={false} name="Umidade %"  strokeWidth={2} connectNulls />
+                  <Line yAxisId="h" type="monotone" dataKey={f2}          stroke="var(--accent2)" dot={false} name={ind ? 'Tensão Tx (V)' : 'Umidade %'}  strokeWidth={2} connectNulls />
                 </LineChart>
               </ResponsiveContainer>
 
@@ -165,7 +169,7 @@ export default function ReportsPage() {
                 <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
                   <thead style={{ position: 'sticky', top: 0, background: 'var(--surface)' }}>
                     <tr style={{ borderBottom: '1px solid var(--border)' }}>
-                      {['Data', 'Temp média (°C)', 'Umidade média (%)'].map(h => (
+                      {['Data', 'Temp média (°C)', ind ? 'Tensão média (V)' : 'Umidade média (%)'].map(h => (
                         <th key={h} style={{ padding: '8px 12px', textAlign: 'left', fontSize: 10, color: 'var(--muted)', fontFamily: 'var(--font-mono)', textTransform: 'uppercase' }}>{h}</th>
                       ))}
                     </tr>
@@ -175,7 +179,7 @@ export default function ReportsPage() {
                       <tr key={i} style={{ borderBottom: '1px solid var(--border)' }}>
                         <td style={{ padding: '7px 12px', fontFamily: 'var(--font-mono)', color: 'var(--muted)' }}>{r.day}</td>
                         <td style={{ padding: '7px 12px', fontFamily: 'var(--font-mono)', color: 'var(--temp)' }}>{r.temperature ?? '--'}</td>
-                        <td style={{ padding: '7px 12px', fontFamily: 'var(--font-mono)', color: 'var(--accent2)' }}>{r.humidity ?? '--'}</td>
+                        <td style={{ padding: '7px 12px', fontFamily: 'var(--font-mono)', color: 'var(--accent2)' }}>{r[f2] ?? '--'}</td>
                       </tr>
                     ))}
                   </tbody>

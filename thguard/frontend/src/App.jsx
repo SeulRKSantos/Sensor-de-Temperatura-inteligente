@@ -7,6 +7,8 @@ import UsersPage from './pages/UsersPage'
 import AlertsPage from './pages/AlertsPage'
 import ReportsPage from './pages/ReportsPage'
 import Layout from './components/Layout'
+import IndustrialDashboardPage from './pages/IndustrialDashboardPage'
+import IndustrialDetailPage from './pages/IndustrialDetailPage'
 
 function ProtectedRole({ children, roles }) {
   const { user } = useAuth()
@@ -30,8 +32,12 @@ export default function App() {
           <Route path="/" element={<Protected><Layout /></Protected>}>
             <Route index element={<DashboardPage />} />
             <Route path="sensor/:id" element={<SensorDetailPage />} />
-            <Route path="alerts" element={<ProtectedRole roles={['admin','editor']}><AlertsPage /></ProtectedRole>} />
-            <Route path="reports" element={<ProtectedRole roles={['admin','editor']}><ReportsPage /></ProtectedRole>} />
+            <Route path="alerts" element={<ProtectedRole roles={['admin','editor']}><AlertsPage key="thguard" /></ProtectedRole>} />
+            <Route path="reports" element={<ProtectedRole roles={['admin','editor']}><ReportsPage key="thguard" /></ProtectedRole>} />
+            <Route path="industrial" element={<IndustrialDashboardPage />} />
+            <Route path="industrial/sensor/:id" element={<IndustrialDetailPage />} />
+            <Route path="industrial/alerts" element={<ProtectedRole roles={['admin','editor']}><AlertsPage key="industrial" kind="industrial" /></ProtectedRole>} />
+            <Route path="industrial/reports" element={<ProtectedRole roles={['admin','editor']}><ReportsPage key="industrial" kind="industrial" /></ProtectedRole>} />
             <Route path="users" element={<ProtectedRole roles={['admin']}><UsersPage /></ProtectedRole>} />
           </Route>
         </Routes>

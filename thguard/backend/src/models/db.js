@@ -104,32 +104,114 @@ async function deleteUser(id) {
   await query('DELETE FROM users WHERE id=?', [id]);
 }
 
+// SCHEMA — migracoes idempotentes executadas no boot
+// (o init.sql so roda na criacao do volume; isto atualiza bancos existentes)
+async function ensureSchema() {
+  await query(`ALTER TABLE sensors ADD COLUMN IF NOT EXISTS kind VARCHAR(20) NOT NULL DEFAULT 'thguard' AFTER mac`);
+  await query(`ALTER TABLE sensors ADD COLUMN IF NOT EXISTS model VARCHAR(30) DEFAULT NULL AFTER kind`);
+  await query(`ALTER TABLE sensors ADD COLUMN IF NOT EXISTS fw VARCHAR(30) DEFAULT NULL AFTER model`);
+  await query(`CREATE TABLE IF NOT EXISTS industrial_config (
+    sensor_id   VARCHAR(50) NOT NULL PRIMARY KEY,
+    range_min   DOUBLE NOT NULL DEFAULT 0,
+    range_max   DOUBLE NOT NULL DEFAULT 150,
+    v_full      DOUBLE NOT NULL DEFAULT 10,
+    divisor     DOUBLE NOT NULL DEFAULT 5,
+    offset_mv   DOUBLE NOT NULL DEFAULT -16,
+    gain        DOUBLE NOT NULL DEFAULT 1,
+    offset_temp DOUBLE NOT NULL DEFAULT 0,
+    fault_v     DOUBLE NOT NULL DEFAULT 10.5,
+    low_v       DOUBLE NOT NULL DEFAULT 0.05,
+    interval_s  INT   NOT NULL DEFAULT 5,
+    updated_at  DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    CONSTRAINT fk_industrial_sensor FOREIGN KEY (sensor_id) REFERENCES sensors(id) ON DELETE CASCADE
+  )`);
+  console.log('[DB] Schema verificado (sensores industriais).');
+}
+let schemaReady = null;
+function schema() {
+  if (!schemaReady) {
+    schemaReady = ensureSchema().catch(e => {
+      console.error('[DB] ensureSchema erro:', e.message);
+      schemaReady = null;               // tenta de novo na proxima chamada
+      throw e;
+    });
+  }
+  return schemaReady;
+}
+
 // SENSORS
-async function getSensors() {
-  const rows = await query(`SELECT id,mac,name,location,tag,online,last_seen as lastSeen,
-    ip,ssid,temp_limit as tempLimit,humid_limit as humidLimit,
-    alert_active as alertActive,created_at as createdAt FROM sensors`);
-  return rows.map(s => ({...s, online:!!s.online, alertActive:!!s.alertActive}));
+const IND_MAP = {
+  rangeMin:'range_min', rangeMax:'range_max', vFull:'v_full', divisor:'divisor',
+  offsetMv:'offset_mv', gain:'gain', offsetTemp:'offset_temp', faultV:'fault_v',
+  lowV:'low_v', interval:'interval_s',
+};
+const SENSOR_SELECT = `SELECT s.id,s.mac,s.kind,s.model,s.fw,s.name,s.location,s.tag,s.online,
+    s.last_seen as lastSeen,s.ip,s.ssid,s.temp_limit as tempLimit,s.humid_limit as humidLimit,
+    s.alert_active as alertActive,s.created_at as createdAt,
+    ic.range_min,ic.range_max,ic.v_full,ic.divisor,ic.offset_mv,ic.gain,ic.offset_temp,
+    ic.fault_v,ic.low_v,ic.interval_s
+  FROM sensors s LEFT JOIN industrial_config ic ON ic.sensor_id = s.id`;
+
+function mapSensor(r) {
+  const s = {
+    id:r.id, mac:r.mac, kind:r.kind || 'thguard', model:r.model, fw:r.fw,
+    name:r.name, location:r.location, tag:r.tag, online:!!r.online, lastSeen:r.lastSeen,
+    ip:r.ip, ssid:r.ssid, tempLimit:r.tempLimit, humidLimit:r.humidLimit,
+    alertActive:!!r.alertActive, createdAt:r.createdAt,
+  };
+  if (s.kind === 'industrial') {
+    s.industrial = {};
+    for (const [k, col] of Object.entries(IND_MAP)) {
+      const v = r[col];
+      s.industrial[k] = v == null ? v : Math.round(Number(v) * 1e6) / 1e6;   // evita 0.0500000007
+    }
+    if (r.range_min == null) s.industrial = null;     // sem linha de calibracao ainda
+  }
+  return s;
+}
+
+async function getSensors(kind) {
+  await schema();
+  const rows = kind
+    ? await query(SENSOR_SELECT + ' WHERE s.kind=? ORDER BY s.id', [kind])
+    : await query(SENSOR_SELECT + ' ORDER BY s.id');
+  return rows.map(mapSensor);
 }
 async function getSensorById(id) {
-  const rows = await query(`SELECT id,mac,name,location,tag,online,last_seen as lastSeen,
-    ip,ssid,temp_limit as tempLimit,humid_limit as humidLimit,
-    alert_active as alertActive,created_at as createdAt FROM sensors WHERE id=?`, [id]);
-  if (!rows[0]) return null;
-  return {...rows[0], online:!!rows[0].online, alertActive:!!rows[0].alertActive};
+  await schema();
+  const rows = await query(SENSOR_SELECT + ' WHERE s.id=?', [id]);
+  return rows[0] ? mapSensor(rows[0]) : null;
 }
 async function getSensorByMac(mac) {
-  const rows = await query('SELECT id FROM sensors WHERE mac=?', [mac]);
+  await schema();
+  const rows = await query('SELECT id, kind FROM sensors WHERE mac=?', [mac]);
   return rows[0] || null;
 }
-async function createSensor({ id, mac, name, location, tempLimit, humidLimit }) {
-  await query(`INSERT INTO sensors (id,mac,name,location,temp_limit,humid_limit) VALUES (?,?,?,?,?,?)`,
-    [id, mac||null, name, location||'Sem localizacao', tempLimit||25, humidLimit||80]);
+async function createSensor({ id, mac, name, location, tempLimit, humidLimit, kind, model, fw }) {
+  await schema();
+  await query(`INSERT INTO sensors (id,mac,kind,model,fw,name,location,temp_limit,humid_limit)
+    VALUES (?,?,?,?,?,?,?,?,?)`,
+    [id, mac||null, kind||'thguard', model||null, fw||null, name,
+     location||'Sem localizacao', tempLimit||25, humidLimit||80]);
+  if (kind === 'industrial') await ensureIndustrialConfig(id);
+}
+async function ensureIndustrialConfig(sensorId) {
+  await query('INSERT IGNORE INTO industrial_config (sensor_id) VALUES (?)', [sensorId]);
+}
+async function updateIndustrialConfig(sensorId, fields) {
+  await ensureIndustrialConfig(sensorId);
+  const sets = [], vals = [];
+  Object.entries(fields).forEach(([k, v]) => {
+    if (IND_MAP[k]) { sets.push(IND_MAP[k] + '=?'); vals.push(v); }
+  });
+  if (!sets.length) return;
+  vals.push(sensorId);
+  await query('UPDATE industrial_config SET ' + sets.join(',') + ' WHERE sensor_id=?', vals);
 }
 async function updateSensor(id, fields) {
   const map = { name:'name', location:'location', tag:'tag', online:'online', lastSeen:'last_seen',
     ip:'ip', ssid:'ssid', tempLimit:'temp_limit', humidLimit:'humid_limit',
-    alertActive:'alert_active', mac:'mac' };
+    alertActive:'alert_active', mac:'mac', model:'model', fw:'fw' };
   const sets = [], vals = [];
   Object.entries(fields).forEach(([k,v]) => {
     if (map[k]) {
@@ -145,15 +227,17 @@ async function updateSensor(id, fields) {
 async function deleteSensor(id) {
   await query('DELETE FROM sensors WHERE id=?', [id]);
 }
-async function getNextSensorId() {
-  const rows = await query('SELECT COUNT(*) as c FROM sensors');
-  let n = (rows[0].c || 0) + 1;
-  while (true) {
-    const id = 'sensor-'+String(n).padStart(3,'0');
-    const exists = await query('SELECT id FROM sensors WHERE id=?', [id]);
-    if (!exists.length) return id;
-    n++;
+// Proximo ID com o prefixo do tipo: sensor-NNN (TH-GUARD) ou ind-NNN (industrial).
+// Usa o maior numero + 1, para nao preencher "buracos" deixados por sensores
+// apagados (o historico deles continua no InfluxDB e se misturaria com o novo).
+async function getNextSensorId(prefix = 'sensor') {
+  const rows = await query('SELECT id FROM sensors WHERE id LIKE ?', [prefix + '-%']);
+  let max = 0;
+  for (const r of rows) {
+    const n = parseInt(r.id.slice(prefix.length + 1), 10);
+    if (Number.isFinite(n) && n > max) max = n;
   }
+  return prefix + '-' + String(max + 1).padStart(3, '0');
 }
 
 // SENSOR ALERTS
@@ -203,7 +287,8 @@ module.exports = {
   query, uuid,
   getUsers, getUserByEmail, getUserById, createUser, updateUser, deleteUser,
   getSensors, getSensorById, getSensorByMac, createSensor, updateSensor,
-  deleteSensor, getNextSensorId,
+  deleteSensor, getNextSensorId, schema,
+  ensureIndustrialConfig, updateIndustrialConfig,
   getSensorAlerts, saveSensorAlerts,
   addEmailHistory, getEmailHistory,
   getSmtp, saveSmtp,
