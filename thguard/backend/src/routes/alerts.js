@@ -8,6 +8,19 @@ const { queryHistory, queryStats } = require('../services/influx');
 const ALERT_TYPES = ['temp_high','humid_high','sensor_offline','temp_normal',
                      'humid_normal','sensor_online','daily','weekly','monthly'];
 
+// Middleware — valida acesso ao sensor da URL com base na tag do usuario
+async function checkSensorAccess(req, res, next) {
+  try {
+    const sensor = await db.getSensorById(req.params.sensorId);
+    if (!sensor) return res.status(404).json({ error: 'Sensor nao encontrado' });
+    const allowed = req.user.role === 'admin' ||
+      (sensor.tag && (req.user.tags || []).includes(sensor.tag));
+    if (!allowed) return res.status(403).json({ error: 'Sem permissão para este sensor' });
+    req.sensor = sensor;
+    next();
+  } catch (e) { res.status(500).json({ error: e.message }); }
+}
+
 router.get('/smtp', auth(['admin']), async (req, res) => {
   try {
     const smtp = await db.getSmtp();
@@ -28,7 +41,7 @@ router.post('/smtp', auth(['admin']), async (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
-router.get('/:sensorId', auth(), async (req, res) => {
+router.get('/:sensorId', auth(), checkSensorAccess, async (req, res) => {
   try {
     const saved = await db.getSensorAlerts(req.params.sensorId);
     const alerts = {};
@@ -43,30 +56,30 @@ router.get('/:sensorId', auth(), async (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
-router.put('/:sensorId', auth(['admin','editor']), async (req, res) => {
+router.put('/:sensorId', auth(['admin','editor']), checkSensorAccess, async (req, res) => {
   try {
     await db.saveSensorAlerts(req.params.sensorId, req.body);
     res.json({ ok: true });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
-router.post('/:sensorId/test/:type', auth(['admin','editor']), async (req, res) => {
+router.post('/:sensorId/test/:type', auth(['admin','editor']), checkSensorAccess, async (req, res) => {
   try {
     await sendAlert(req.params.sensorId, req.params.type, { temperature:26.5, humidity:85 });
     res.json({ ok: true });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
-router.get('/:sensorId/history', auth(), async (req, res) => {
+router.get('/:sensorId/history', auth(), checkSensorAccess, async (req, res) => {
   try { res.json(await db.getEmailHistory(req.params.sensorId)); }
   catch (e) { res.status(500).json({ error: e.message }); }
 });
 
-router.get('/:sensorId/state', auth(), (req, res) => {
+router.get('/:sensorId/state', auth(), checkSensorAccess, (req, res) => {
   res.json(getAlertState()[req.params.sensorId] || {});
 });
 
-router.get('/:sensorId/report/:period', auth(), async (req, res) => {
+router.get('/:sensorId/report/:period', auth(), checkSensorAccess, async (req, res) => {
   const ranges = { monthly:'720h', semiannual:'4320h', annual:'8760h' };
   const range = ranges[req.params.period];
   if (!range) return res.status(400).json({ error: 'Periodo invalido' });

@@ -1,5 +1,6 @@
 const db = require('../models/db');
 const { sendAlert } = require('./email');
+const { broadcast } = require('./websocket');
 
 // Estado em memória dos alertas ativos
 const alertState = {};
@@ -32,6 +33,8 @@ async function processReading(sensorId, temperature, humidity) {
   if (s.offline) {
     s.offline = false;
     console.log(`[ALERT] ${sensorId} voltou online`);
+    await db.updateSensor(sensorId, { online: true });
+    broadcast({ type: 'status', sensorId, online: true });
     await sendAlert(sensorId, 'sensor_online', { temperature, humidity });
   }
 
@@ -98,7 +101,32 @@ async function processReading(sensorId, temperature, humidity) {
 }
 
 // Checker de offline — roda a cada minuto
+async function initOfflineState() {
+  // Inicializa estado dos sensores ja cadastrados no boot.
+  // Sensores com last_seen antigo entram como offline imediatamente.
+  const sensors = await db.getSensors();
+  const now = Date.now();
+  for (const sensor of sensors) {
+    const lastSeenMs = sensor.lastSeen ? new Date(sensor.lastSeen).getTime() : 0;
+    const isOffline = !lastSeenMs || (now - lastSeenMs > OFFLINE_THRESHOLD);
+    alertState[sensor.id] = {
+      tempHigh: false, humidHigh: false, offline: isOffline,
+      lastSeen: lastSeenMs || now,
+      tempHighSince: null, humidHighSince: null,
+      tempLowSince: null, humidLowSince: null,
+      lastTempAlert: 0, lastHumidAlert: 0,
+    };
+    // Corrige o banco se estava marcado online incorretamente
+    if (isOffline && sensor.online) {
+      await db.updateSensor(sensor.id, { online: false });
+      broadcast({ type: 'status', sensorId: sensor.id, online: false });
+      console.log(`[ALERT] ${sensor.id} marcado OFFLINE no boot (last_seen antigo)`);
+    }
+  }
+}
+
 function startOfflineChecker() {
+  initOfflineState().catch(e => console.error('[ALERT] Erro init:', e.message));
   setInterval(async () => {
     const now = Date.now();
     const sensors = await db.getSensors();
@@ -108,6 +136,8 @@ function startOfflineChecker() {
       if (!s.offline && now - s.lastSeen > OFFLINE_THRESHOLD) {
         s.offline = true;
         console.log(`[ALERT] ${sensor.id} OFFLINE (último dado há ${Math.round((now - s.lastSeen)/1000)}s)`);
+        await db.updateSensor(sensor.id, { online: false });
+        broadcast({ type: 'status', sensorId: sensor.id, online: false });
         await sendAlert(sensor.id, 'sensor_offline', {});
       }
     }

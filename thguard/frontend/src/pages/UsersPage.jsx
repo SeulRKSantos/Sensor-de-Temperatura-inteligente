@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react'
 import { useAuth } from '../context/AuthContext'
 import { api } from '../hooks/api'
-import { Plus, Trash2, Edit2, X, Check } from 'lucide-react'
+import { Plus, Trash2, Edit2, X, Check, Tag } from 'lucide-react'
 
 const ROLES = ['admin', 'editor', 'viewer']
 const ROLE_LABELS = { admin: 'Administrador', editor: 'Editor', viewer: 'Visualizador' }
@@ -10,16 +10,28 @@ const ROLE_COLORS = { admin: 'var(--danger)', editor: 'var(--warn)', viewer: 'va
 export default function UsersPage() {
   const { getToken, user: me } = useAuth()
   const [users, setUsers] = useState([])
+  const [tagOptions, setTagOptions] = useState([])
   const [showForm, setShowForm] = useState(false)
   const [editId, setEditId] = useState(null)
-  const [form, setForm] = useState({ name: '', email: '', password: '', role: 'viewer' })
+  const [form, setForm] = useState({ name: '', email: '', password: '', role: 'viewer', tags: [] })
   const [error, setError] = useState('')
 
   useEffect(() => { load() }, [])
 
   async function load() {
-    const data = await api.getUsers(getToken())
-    setUsers(data)
+    const [usersData, tags] = await Promise.all([
+      api.getUsers(getToken()),
+      api.getTags(getToken())
+    ])
+    setUsers(usersData)
+    setTagOptions(tags)
+  }
+
+  function toggleTag(tag) {
+    setForm(p => ({
+      ...p,
+      tags: p.tags.includes(tag) ? p.tags.filter(t => t !== tag) : [...p.tags, tag]
+    }))
   }
 
   async function submit(e) {
@@ -27,7 +39,7 @@ export default function UsersPage() {
     setError('')
     try {
       if (editId) {
-        const body = { name: form.name, email: form.email, role: form.role }
+        const body = { name: form.name, email: form.email, role: form.role, tags: form.tags }
         if (form.password) body.password = form.password
         await api.updateUser(editId, body, getToken())
       } else {
@@ -35,7 +47,7 @@ export default function UsersPage() {
       }
       setShowForm(false)
       setEditId(null)
-      setForm({ name: '', email: '', password: '', role: 'viewer' })
+      setForm({ name: '', email: '', password: '', role: 'viewer', tags: [] })
       load()
     } catch (e) {
       setError(e.message)
@@ -51,7 +63,7 @@ export default function UsersPage() {
 
   function startEdit(u) {
     setEditId(u.id)
-    setForm({ name: u.name, email: u.email, password: '', role: u.role })
+    setForm({ name: u.name, email: u.email, password: '', role: u.role, tags: u.tags || [] })
     setShowForm(true)
   }
 
@@ -62,7 +74,7 @@ export default function UsersPage() {
           <h1 style={{ fontSize: 20, fontWeight: 600 }}>Usuários</h1>
           <p style={{ color: 'var(--muted)', fontSize: 13, marginTop: 2 }}>Gerenciar acesso à plataforma</p>
         </div>
-        <button onClick={() => { setShowForm(true); setEditId(null); setForm({ name: '', email: '', password: '', role: 'viewer' }) }} style={{
+        <button onClick={() => { setShowForm(true); setEditId(null); setForm({ name: '', email: '', password: '', role: 'viewer', tags: [] }) }} style={{
           display: 'flex', alignItems: 'center', gap: 6, padding: '8px 14px',
           background: 'var(--accent)', color: '#000', border: 'none', borderRadius: 7,
           cursor: 'pointer', fontSize: 12, fontWeight: 700, fontFamily: 'var(--font-mono)'
@@ -103,6 +115,41 @@ export default function UsersPage() {
                 </select>
               </div>
             </div>
+
+            {/* Tags */}
+            <div style={{ marginTop: 14 }}>
+              <label style={lblStyle}>
+                <Tag size={11} style={{ verticalAlign: 'middle', marginRight: 4 }} />
+                Tags de acesso (locais que este usuário pode visualizar e editar)
+              </label>
+              {form.role === 'admin' ? (
+                <div style={{ fontSize: 12, color: 'var(--muted)', fontStyle: 'italic', padding: '8px 0' }}>
+                  Administradores têm acesso a todos os sensores, independente de tags.
+                </div>
+              ) : tagOptions.length === 0 ? (
+                <div style={{ fontSize: 12, color: 'var(--muted)', fontStyle: 'italic', padding: '8px 0' }}>
+                  Nenhuma tag cadastrada ainda. Cadastre uma tag em um sensor primeiro.
+                </div>
+              ) : (
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginTop: 6 }}>
+                  {tagOptions.map(tag => {
+                    const active = form.tags.includes(tag)
+                    return (
+                      <button type="button" key={tag} onClick={() => toggleTag(tag)} style={{
+                        padding: '6px 12px', borderRadius: 6, cursor: 'pointer',
+                        fontSize: 12, fontFamily: 'var(--font-mono)', fontWeight: 600,
+                        border: `1px solid ${active ? 'var(--accent)' : 'var(--border2)'}`,
+                        background: active ? 'rgba(26,79,214,0.15)' : 'var(--bg)',
+                        color: active ? 'var(--accent)' : 'var(--muted)'
+                      }}>
+                        #{tag}
+                      </button>
+                    )
+                  })}
+                </div>
+              )}
+            </div>
+
             {error && <div style={{ marginTop: 12, fontSize: 12, color: 'var(--danger)' }}>{error}</div>}
             <button type="submit" style={{
               marginTop: 16, display: 'flex', alignItems: 'center', gap: 6, padding: '8px 16px',
@@ -120,7 +167,7 @@ export default function UsersPage() {
         <table style={{ width: '100%', borderCollapse: 'collapse' }}>
           <thead>
             <tr style={{ borderBottom: '1px solid var(--border)' }}>
-              {['Nome', 'E-mail', 'Perfil', 'Criado em', ''].map(h => (
+              {['Nome', 'E-mail', 'Perfil', 'Tags', 'Criado em', ''].map(h => (
                 <th key={h} style={{ padding: '12px 16px', textAlign: 'left', fontSize: 10, color: 'var(--muted)', fontFamily: 'var(--font-mono)', textTransform: 'uppercase', letterSpacing: 1 }}>
                   {h}
                 </th>
@@ -142,6 +189,22 @@ export default function UsersPage() {
                   }}>
                     {ROLE_LABELS[u.role]}
                   </span>
+                </td>
+                <td style={{ padding: '12px 16px' }}>
+                  {u.role === 'admin' ? (
+                    <span style={{ fontSize: 11, color: 'var(--muted)', fontStyle: 'italic' }}>Todos</span>
+                  ) : (u.tags && u.tags.length > 0) ? (
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
+                      {u.tags.map(tag => (
+                        <span key={tag} style={{
+                          padding: '2px 7px', borderRadius: 4, fontSize: 10, fontWeight: 600,
+                          fontFamily: 'var(--font-mono)', background: 'rgba(26,79,214,0.12)', color: 'var(--accent)'
+                        }}>#{tag}</span>
+                      ))}
+                    </div>
+                  ) : (
+                    <span style={{ fontSize: 11, color: 'var(--danger)' }}>Sem acesso</span>
+                  )}
                 </td>
                 <td style={{ padding: '12px 16px', fontSize: 11, color: 'var(--muted)', fontFamily: 'var(--font-mono)' }}>
                   {new Date(u.createdAt).toLocaleDateString('pt-BR')}
@@ -165,10 +228,10 @@ export default function UsersPage() {
       {/* Legenda de roles */}
       <div style={{ marginTop: 16, padding: '12px 16px', background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 8 }}>
         <div style={{ fontSize: 10, color: 'var(--muted)', fontFamily: 'var(--font-mono)', marginBottom: 8, textTransform: 'uppercase' }}>Permissões por perfil</div>
-        <div style={{ display: 'flex', gap: 24, fontSize: 12, color: 'var(--muted)' }}>
-          <span><span style={{ color: 'var(--danger)', fontWeight: 600 }}>Admin</span> — tudo, incluindo usuários e delete de sensores</span>
-          <span><span style={{ color: 'var(--warn)', fontWeight: 600 }}>Editor</span> — configura e envia comandos para sensores</span>
-          <span><span style={{ color: 'var(--accent2)', fontWeight: 600 }}>Visualizador</span> — apenas leitura dos dados e gráficos</span>
+        <div style={{ display: 'flex', gap: 24, fontSize: 12, color: 'var(--muted)', flexWrap: 'wrap' }}>
+          <span><span style={{ color: 'var(--danger)', fontWeight: 600 }}>Admin</span> — tudo, incluindo usuários e delete de sensores (todas as tags)</span>
+          <span><span style={{ color: 'var(--warn)', fontWeight: 600 }}>Editor</span> — configura sensores das suas tags</span>
+          <span><span style={{ color: 'var(--accent2)', fontWeight: 600 }}>Visualizador</span> — leitura apenas dos sensores das suas tags</span>
         </div>
       </div>
     </div>

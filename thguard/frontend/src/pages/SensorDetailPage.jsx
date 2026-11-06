@@ -24,14 +24,18 @@ export default function SensorDetailPage() {
   const [liveHumid, setLiveHumid] = useState(null)
   const [tab, setTab]             = useState('chart')
   const [config, setConfig]       = useState({})
+  const [tagOptions, setTagOptions] = useState([])
   const [cmdStatus, setCmdStatus] = useState('')
   const [saving, setSaving]       = useState(false)
+  const [showTemp, setShowTemp]   = useState(true)
+  const [showHumid, setShowHumid] = useState(true)
 
   useEffect(() => {
     api.getSensor(id, getToken()).then(s => {
       setSensor(s)
-      setConfig({ name: s.name, location: s.location, tempLimit: s.tempLimit, humidLimit: s.humidLimit })
+      setConfig({ name: s.name, location: s.location, tempLimit: s.tempLimit, humidLimit: s.humidLimit, tag: s.tag || '' })
     })
+    api.getTags(getToken()).then(setTagOptions).catch(() => {})
   }, [id])
 
   useEffect(() => {
@@ -92,6 +96,20 @@ export default function SensorDetailPage() {
   const humid = liveHumid ?? '—'
   const tempDanger  = typeof temp  === 'number' && temp  >= sensor.tempLimit
   const humidDanger = typeof humid === 'number' && humid >= sensor.humidLimit
+
+  // Calcula o dominio do eixo Y com base apenas nas series visiveis
+  const visibleValues = []
+  history.forEach(d => {
+    if (showTemp  && d.temperature != null) visibleValues.push(d.temperature)
+    if (showHumid && d.humidity    != null) visibleValues.push(d.humidity)
+  })
+  let yDomain = ['auto', 'auto']
+  if (visibleValues.length) {
+    const min = Math.min(...visibleValues)
+    const max = Math.max(...visibleValues)
+    const pad = Math.max((max - min) * 0.1, 1)
+    yDomain = [Math.floor(min - pad), Math.ceil(max + pad)]
+  }
 
   return (
     <div>
@@ -168,14 +186,30 @@ export default function SensorDetailPage() {
               ))}
             </div>
           </div>
+          <div style={{ display: 'flex', gap: 16, marginBottom: 10, paddingLeft: 4 }}>
+            <label style={{ display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer', fontSize: 12, color: showTemp ? 'var(--temp)' : 'var(--muted)', fontFamily: 'var(--font-mono)', userSelect: 'none' }}>
+              <input type="checkbox" checked={showTemp} onChange={e => setShowTemp(e.target.checked)} disabled={!showHumid && showTemp} style={{ accentColor: 'var(--temp)', cursor: 'pointer' }} />
+              Temperatura °C
+            </label>
+            <label style={{ display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer', fontSize: 12, color: showHumid ? 'var(--accent2)' : 'var(--muted)', fontFamily: 'var(--font-mono)', userSelect: 'none' }}>
+              <input type="checkbox" checked={showHumid} onChange={e => setShowHumid(e.target.checked)} disabled={!showTemp && showHumid} style={{ accentColor: 'var(--accent2)', cursor: 'pointer' }} />
+              Umidade %
+            </label>
+          </div>
           <ResponsiveContainer width="100%" className="chart-h" height={260}>
             <LineChart data={history}>
               <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" />
               <XAxis dataKey="ts" tick={{ fill: 'var(--muted)', fontSize: 9 }} interval="preserveStartEnd" />
-              <YAxis tick={{ fill: 'var(--muted)', fontSize: 9 }} width={32} />
+              <YAxis tick={{ fill: 'var(--muted)', fontSize: 9 }} width={32} domain={yDomain} />
               <Tooltip contentStyle={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 6, fontSize: 11 }} labelStyle={{ color: 'var(--muted)' }} />
-              <Line type="monotone" dataKey="temperature" stroke="var(--temp)"    dot={false} name="Temp °C"  strokeWidth={2} />
-              <Line type="monotone" dataKey="humidity"    stroke="var(--accent2)" dot={false} name="Umidade %" strokeWidth={2} />
+              <Line type="monotone" dataKey="temperature" stroke="var(--temp)"    dot={false} name="Temp °C"  strokeWidth={2}
+                strokeOpacity={showTemp ? 1 : 0} hide={!showTemp}
+                isAnimationActive={true} animationDuration={600} animationEasing="ease-in-out" connectNulls
+                style={{ transition: 'stroke-opacity 0.4s ease-in-out' }} />
+              <Line type="monotone" dataKey="humidity"    stroke="var(--accent2)" dot={false} name="Umidade %" strokeWidth={2}
+                strokeOpacity={showHumid ? 1 : 0} hide={!showHumid}
+                isAnimationActive={true} animationDuration={600} animationEasing="ease-in-out" connectNulls
+                style={{ transition: 'stroke-opacity 0.4s ease-in-out' }} />
             </LineChart>
           </ResponsiveContainer>
         </div>
@@ -199,6 +233,20 @@ export default function SensorDetailPage() {
                   style={inpStyle} />
               </div>
             ))}
+            {can(['admin']) && (
+              <div style={{ marginBottom: 12 }}>
+                <label style={lblStyle}>Tag de local</label>
+                <input type="text" list="tag-options" value={config.tag ?? ''}
+                  onChange={e => setConfig(p => ({ ...p, tag: e.target.value }))}
+                  placeholder="Ex: Curtume, CPD, IR..." style={inpStyle} />
+                <datalist id="tag-options">
+                  {tagOptions.map(t => <option key={t} value={t} />)}
+                </datalist>
+                <div style={{ fontSize: 10, color: 'var(--muted)', marginTop: 4 }}>
+                  Define qual grupo de usuários pode visualizar este sensor.
+                </div>
+              </div>
+            )}
             <button onClick={saveConfig} disabled={saving} style={btnPrimary}>
               <Save size={13} /> {saving ? 'Salvando...' : 'Salvar e enviar ao sensor'}
             </button>

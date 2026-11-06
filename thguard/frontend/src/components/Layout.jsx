@@ -30,8 +30,8 @@ export default function Layout() {
 
       <nav style={{ flex: 1, padding: '16px 12px', display: 'flex', flexDirection: 'column', gap: 4 }}>
         <NavLink to="/" end style={navStyle} onClick={closeMenu}><Activity size={15} /> Dashboard</NavLink>
-        <NavLink to="/alerts" style={navStyle} onClick={closeMenu}><Bell size={15} /> Alertas</NavLink>
-        <NavLink to="/reports" style={navStyle} onClick={closeMenu}><BarChart2 size={15} /> Relatórios</NavLink>
+        {can(['admin','editor']) && <NavLink to="/alerts" style={navStyle} onClick={closeMenu}><Bell size={15} /> Alertas</NavLink>}
+        {can(['admin','editor']) && <NavLink to="/reports" style={navStyle} onClick={closeMenu}><BarChart2 size={15} /> Relatórios</NavLink>}
         {can(['admin']) && <NavLink to="/users" style={navStyle} onClick={closeMenu}><Users size={15} /> Usuários</NavLink>}
       </nav>
 

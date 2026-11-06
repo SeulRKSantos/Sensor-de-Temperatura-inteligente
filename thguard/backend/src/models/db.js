@@ -43,15 +43,42 @@ setTimeout(ensureAdmin, 3000);
 
 // USERS
 async function getUsers() {
-  return query('SELECT id,name,email,role,created_at as createdAt FROM users');
+  const users = await query('SELECT id,name,email,role,created_at as createdAt FROM users');
+  const tagRows = await query('SELECT user_id, tag FROM user_tags');
+  const tagsByUser = {};
+  tagRows.forEach(r => {
+    (tagsByUser[r.user_id] = tagsByUser[r.user_id] || []).push(r.tag);
+  });
+  return users.map(u => ({ ...u, tags: tagsByUser[u.id] || [] }));
+}
+async function getUserTags(userId) {
+  const rows = await query('SELECT tag FROM user_tags WHERE user_id=?', [userId]);
+  return rows.map(r => r.tag);
+}
+async function setUserTags(userId, tags) {
+  await query('DELETE FROM user_tags WHERE user_id=?', [userId]);
+  if (tags && tags.length) {
+    const values = tags.map(t => [userId, t]);
+    for (const [uid, tag] of values) {
+      await query('INSERT IGNORE INTO user_tags (user_id, tag) VALUES (?,?)', [uid, tag]);
+    }
+  }
+}
+async function getAllTags() {
+  const rows = await query('SELECT DISTINCT tag FROM sensors WHERE tag IS NOT NULL AND tag != \'\' ORDER BY tag');
+  return rows.map(r => r.tag);
 }
 async function getUserByEmail(email) {
   const rows = await query('SELECT * FROM users WHERE email=?', [email]);
-  return rows[0] || null;
+  if (!rows[0]) return null;
+  const tags = await getUserTags(rows[0].id);
+  return { ...rows[0], tags };
 }
 async function getUserById(id) {
   const rows = await query('SELECT * FROM users WHERE id=?', [id]);
-  return rows[0] || null;
+  if (!rows[0]) return null;
+  const tags = await getUserTags(id);
+  return { ...rows[0], tags };
 }
 async function createUser({ name, email, password, role }) {
   const id = uuid();
@@ -79,13 +106,13 @@ async function deleteUser(id) {
 
 // SENSORS
 async function getSensors() {
-  const rows = await query(`SELECT id,mac,name,location,online,last_seen as lastSeen,
+  const rows = await query(`SELECT id,mac,name,location,tag,online,last_seen as lastSeen,
     ip,ssid,temp_limit as tempLimit,humid_limit as humidLimit,
     alert_active as alertActive,created_at as createdAt FROM sensors`);
   return rows.map(s => ({...s, online:!!s.online, alertActive:!!s.alertActive}));
 }
 async function getSensorById(id) {
-  const rows = await query(`SELECT id,mac,name,location,online,last_seen as lastSeen,
+  const rows = await query(`SELECT id,mac,name,location,tag,online,last_seen as lastSeen,
     ip,ssid,temp_limit as tempLimit,humid_limit as humidLimit,
     alert_active as alertActive,created_at as createdAt FROM sensors WHERE id=?`, [id]);
   if (!rows[0]) return null;
@@ -100,7 +127,7 @@ async function createSensor({ id, mac, name, location, tempLimit, humidLimit }) 
     [id, mac||null, name, location||'Sem localizacao', tempLimit||25, humidLimit||80]);
 }
 async function updateSensor(id, fields) {
-  const map = { name:'name', location:'location', online:'online', lastSeen:'last_seen',
+  const map = { name:'name', location:'location', tag:'tag', online:'online', lastSeen:'last_seen',
     ip:'ip', ssid:'ssid', tempLimit:'temp_limit', humidLimit:'humid_limit',
     alertActive:'alert_active', mac:'mac' };
   const sets = [], vals = [];
@@ -180,4 +207,5 @@ module.exports = {
   getSensorAlerts, saveSensorAlerts,
   addEmailHistory, getEmailHistory,
   getSmtp, saveSmtp,
+  getUserTags, setUserTags, getAllTags,
 };

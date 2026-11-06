@@ -12,6 +12,7 @@ CREATE TABLE IF NOT EXISTS sensors (
   mac          VARCHAR(20)  UNIQUE,
   name         VARCHAR(100) NOT NULL,
   location     VARCHAR(200) NOT NULL DEFAULT 'Sem localizacao',
+  tag          VARCHAR(50),
   online       TINYINT(1)   NOT NULL DEFAULT 0,
   last_seen    DATETIME,
   ip           VARCHAR(45),
@@ -20,6 +21,13 @@ CREATE TABLE IF NOT EXISTS sensors (
   humid_limit  FLOAT        NOT NULL DEFAULT 80,
   alert_active TINYINT(1)   NOT NULL DEFAULT 0,
   created_at   DATETIME     NOT NULL DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS user_tags (
+  user_id VARCHAR(36) NOT NULL,
+  tag     VARCHAR(50) NOT NULL,
+  PRIMARY KEY (user_id, tag),
+  FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
 );
 
 CREATE TABLE IF NOT EXISTS sensor_alerts (

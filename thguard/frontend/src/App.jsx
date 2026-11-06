@@ -30,9 +30,9 @@ export default function App() {
           <Route path="/" element={<Protected><Layout /></Protected>}>
             <Route index element={<DashboardPage />} />
             <Route path="sensor/:id" element={<SensorDetailPage />} />
-            <Route path="alerts" element={<AlertsPage />} />
+            <Route path="alerts" element={<ProtectedRole roles={['admin','editor']}><AlertsPage /></ProtectedRole>} />
             <Route path="reports" element={<ProtectedRole roles={['admin','editor']}><ReportsPage /></ProtectedRole>} />
-            <Route path="users" element={<UsersPage />} />
+            <Route path="users" element={<ProtectedRole roles={['admin']}><UsersPage /></ProtectedRole>} />
           </Route>
         </Routes>
       </BrowserRouter>

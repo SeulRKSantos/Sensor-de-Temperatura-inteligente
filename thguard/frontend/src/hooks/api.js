@@ -7,12 +7,23 @@ function headers(token) {
   }
 }
 
+function handleUnauthorized() {
+  // Token expirado ou invalido — limpa sessao e redireciona ao login
+  localStorage.removeItem('thguard_token')
+  localStorage.removeItem('thguard_user')
+  window.dispatchEvent(new Event('thguard:logout'))
+}
+
 async function req(method, path, body, token) {
   const res = await fetch(BASE + path, {
     method,
     headers: headers(token),
     body: body ? JSON.stringify(body) : undefined
   })
+  if (res.status === 401) {
+    handleUnauthorized()
+    throw new Error('Sessao expirada')
+  }
   const data = await res.json().catch(() => ({}))
   if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`)
   return data
@@ -20,6 +31,10 @@ async function req(method, path, body, token) {
 
 async function reqRaw(method, path, token) {
   const res = await fetch(BASE + path, { method, headers: headers(token) })
+  if (res.status === 401) {
+    handleUnauthorized()
+    throw new Error('Sessao expirada')
+  }
   if (!res.ok) throw new Error(`HTTP ${res.status}`)
   return res
 }
@@ -29,6 +44,7 @@ export const api = {
   me:            (t) => req('GET', '/auth/me', null, t),
 
   getSensors:    (t) => req('GET', '/sensors', null, t),
+  getTags:       (t) => req('GET', '/sensors/meta/tags', null, t),
   getSensor:     (id, t) => req('GET', `/sensors/${id}`, null, t),
   updateSensor:  (id, body, t) => req('PATCH', `/sensors/${id}`, body, t),
   deleteSensor:  (id, t) => req('DELETE', `/sensors/${id}`, null, t),

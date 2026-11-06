@@ -12,7 +12,7 @@ router.get('/', auth(['admin']), async (req, res) => {
 
 router.post('/', auth(['admin']), async (req, res) => {
   try {
-    const { name, email, password, role } = req.body;
+    const { name, email, password, role, tags } = req.body;
     if (!name || !email || !password || !role)
       return res.status(400).json({ error: 'Campos obrigatorios: name, email, password, role' });
     if (!['admin','editor','viewer'].includes(role))
@@ -20,19 +20,21 @@ router.post('/', auth(['admin']), async (req, res) => {
     const existing = await db.getUserByEmail(email);
     if (existing) return res.status(409).json({ error: 'Email ja cadastrado' });
     const user = await db.createUser({ name, email, password: bcrypt.hashSync(password, 10), role });
-    res.status(201).json(user);
+    if (Array.isArray(tags)) await db.setUserTags(user.id, tags);
+    res.status(201).json({ ...user, tags: tags || [] });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
 router.patch('/:id', auth(['admin']), async (req, res) => {
   try {
-    const { name, email, password, role } = req.body;
+    const { name, email, password, role, tags } = req.body;
     const fields = {};
     if (name)  fields.name  = name;
     if (email) fields.email = email;
     if (password) fields.password = bcrypt.hashSync(password, 10);
     if (role && ['admin','editor','viewer'].includes(role)) fields.role = role;
     await db.updateUser(req.params.id, fields);
+    if (Array.isArray(tags)) await db.setUserTags(req.params.id, tags);
     const user = await db.getUserById(req.params.id);
     res.json({ ...user, password: undefined });
   } catch (e) { res.status(500).json({ error: e.message }); }
