@@ -55,26 +55,8 @@ services:
       - GF_USERS_ALLOW_SIGN_UP=false
       - TZ=America/Sao_Paulo
 
-  sftpgo:
-    image: drakkan/sftpgo:latest
-    container_name: thi-sftpgo
-    restart: unless-stopped
-    ports:
-      - "8090:8080"
-      - "2022:2022"
-    volumes:
-      - sftpgo_data:/var/lib/sftpgo
-    environment:
-      - SFTPGO_HTTPD__BINDINGS__0__PORT=8080
-      - SFTPGO_HTTPD__BINDINGS__0__ADDRESS=0.0.0.0
-      - SFTPGO_SFTPD__BINDINGS__0__PORT=2022
-      - SFTPGO_DATA_PROVIDER__DRIVER=sqlite
-      - SFTPGO_DATA_PROVIDER__NAME=/var/lib/sftpgo/sftpgo.db
-      - TZ=America/Sao_Paulo
-
 volumes:
   mosquitto_data:
   influxdb_data:
   nodered_data:
   grafana_data:
-  sftpgo_data:
