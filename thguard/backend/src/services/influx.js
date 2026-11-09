@@ -15,13 +15,25 @@ function sanitizeRange(range) {
 
 // ── Tipo de sensor ────────────────────────────────────────────────
 // TH-GUARD (DHT):  measurement "environment", campos temperature + humidity
-// Industrial (VA01): measurement "industrial", campos temperature + voltage
+// Industrial (VA01): measurement "industrial", campos temperature + voltage + off
+//                    (off = 1 com o indicador Therma desligado; na media de uma
+//                    janela vira a fracao do tempo desligado)
 //                    (+ mv, spread, fault gravados para diagnostico)
 // O tipo e identificado pelo prefixo do ID (ind-NNN), atribuido no registro.
 function isIndustrialId(id) { return typeof id === 'string' && id.startsWith('ind-'); }
 function measurementOf(id)  { return isIndustrialId(id) ? 'industrial' : 'environment'; }
 function secondFieldOf(id)  { return isIndustrialId(id) ? 'voltage' : 'humidity'; }
-function fieldFilter(id)    { return `r._field == "temperature" or r._field == "${secondFieldOf(id)}"`; }
+function fieldFilter(id) {
+  const f = `r._field == "temperature" or r._field == "${secondFieldOf(id)}"`;
+  return isIndustrialId(id) ? f + ' or r._field == "off"' : f;
+}
+
+// Texto do estado do indicador para uma linha agregada (off = fracao 0..1)
+function offStatus(off, hasTemp) {
+  if (off == null || off <= 0) return 'Ligado';
+  if (off >= 0.999 || !hasTemp) return 'Indicador Therma desligado';
+  return `Indicador Therma desligado ${Math.round(off * 100)}% do periodo`;
+}
 
 
 let writeApi, queryApi;
@@ -50,15 +62,16 @@ function writePoint(sensorId, temperature, humidity) {
   // Batch gerenciado pelo cliente InfluxDB (flushInterval configurado no getClients)
 }
 
-// Leitura industrial. Em falha upscale a temperatura nao e gravada
-// (o valor nao tem significado fisico), mas a tensao sim.
-function writeIndustrialPoint(sensorId, { temperature, voltage, mv, spread, fault }) {
+// Leitura industrial. Em falha upscale ou com o indicador desligado a
+// temperatura nao e gravada (o valor nao tem significado fisico), mas a tensao sim.
+function writeIndustrialPoint(sensorId, { temperature, voltage, mv, spread, fault, off }) {
   const { writeApi } = getClients();
   const point = new Point('industrial')
     .tag('sensor_id', sensorId)
     .floatField('voltage', voltage)
     .floatField('mv', mv)
-    .intField('fault', fault || 0);
+    .intField('fault', fault || 0)
+    .intField('off', off ? 1 : 0);
   if (temperature != null && Number.isFinite(temperature)) point.floatField('temperature', temperature);
   if (spread != null && Number.isFinite(spread)) point.floatField('spread', spread);
   writeApi.writePoint(point);
@@ -88,6 +101,10 @@ function rowOut(sensorId, obj, fmt) {
   } else {
     out.temperature = obj.temperature;
     out[f2] = obj[f2];
+  }
+  if (isIndustrialId(sensorId)) {
+    out.off = obj.off != null ? Math.round(obj.off * 1000) / 1000 : 0;
+    out.status = offStatus(obj.off, obj.temperature != null);
   }
   return out;
 }
@@ -178,14 +195,15 @@ function queryMonthlyCSV(sensorId) { return queryCSV(sensorId, '720h', '1d', fmt
 function rowsToCSV(rows, type, sensorId) {
   const ind = isIndustrialId(sensorId);
   const second = ind ? 'Tensao transmissor (V)' : 'Umidade (%)';
+  const extra  = ind ? ';Indicador Therma' : '';
   const headers = {
-    daily:   `Data/Hora;Temperatura (C);${second}`,
-    weekly:  `Data/Hora (media 2h);Temperatura (C);${second}`,
-    monthly: `Data (media diaria);Temperatura (C);${second}`
+    daily:   `Data/Hora;Temperatura (C);${second}${extra}`,
+    weekly:  `Data/Hora (media 2h);Temperatura (C);${second}${extra}`,
+    monthly: `Data (media diaria);Temperatura (C);${second}${extra}`
   };
-  const header = headers[type] || `Data;Temperatura;${second}`;
+  const header = headers[type] || `Data;Temperatura;${second}${extra}`;
   const key = ind ? 'voltage' : 'humidity';
-  const lines  = rows.map(r => `${r.ts};${r.temperature};${r[key]}`);
+  const lines  = rows.map(r => `${r.ts};${r.temperature};${r[key]}` + (ind ? `;${r.status}` : ''));
   return [header, ...lines].join('\r\n');
 }
 
@@ -240,5 +258,5 @@ module.exports = {
   writePoint, writeIndustrialPoint, queryHistory, queryStats,
   queryDailyCSV, queryWeeklyCSV, queryMonthlyCSV, rowsToCSV,
   queryPeriodStats, countAlertsInPeriod, sanitizeSensorId, sanitizeRange,
-  isIndustrialId,
+  isIndustrialId, offStatus,
 };

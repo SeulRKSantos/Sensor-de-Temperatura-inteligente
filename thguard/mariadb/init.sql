@@ -44,7 +44,7 @@ CREATE TABLE IF NOT EXISTS industrial_config (
   gain        DOUBLE NOT NULL DEFAULT 1,
   offset_temp DOUBLE NOT NULL DEFAULT 0,
   fault_v     DOUBLE NOT NULL DEFAULT 10.5,
-  low_v       DOUBLE NOT NULL DEFAULT 0.05,
+  off_v       DOUBLE NOT NULL DEFAULT 0.75,   -- area morta: indicador Therma desligado
   interval_s  INT   NOT NULL DEFAULT 5,
   updated_at  DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   FOREIGN KEY (sensor_id) REFERENCES sensors(id) ON DELETE CASCADE

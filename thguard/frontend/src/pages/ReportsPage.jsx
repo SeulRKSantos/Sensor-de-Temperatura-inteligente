@@ -43,14 +43,16 @@ export default function ReportsPage({ kind = 'thguard' }) {
     const byDay = {}
     rows.forEach(r => {
       const day = new Date(r.ts).toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' })
-      if (!byDay[day]) byDay[day] = { temps: [], humids: [], day }
+      if (!byDay[day]) byDay[day] = { temps: [], humids: [], offs: [], day }
       if (r.temperature != null) byDay[day].temps.push(r.temperature)
       if (r[f2]         != null) byDay[day].humids.push(r[f2])
+      if (ind)                   byDay[day].offs.push(r.off ?? 0)
     })
     return Object.values(byDay).map(d => ({
       day:         d.day,
       temperature: d.temps.length  ? +(d.temps.reduce((a,b)=>a+b,0)  / d.temps.length).toFixed(1)  : null,
       [f2]:        d.humids.length ? +(d.humids.reduce((a,b)=>a+b,0) / d.humids.length).toFixed(ind ? 2 : 1) : null,
+      offPct:      d.offs.length ? Math.round(d.offs.reduce((a,b)=>a+b,0) / d.offs.length * 100) : 0,
     }))
   }
 
@@ -126,7 +128,9 @@ export default function ReportsPage({ kind = 'thguard' }) {
               ind
                 ? { label: 'Média Tensão Tx', value: stats.voltage  != null ? stats.voltage.toFixed(2)  + ' V' : '--', color: 'var(--accent2)' }
                 : { label: 'Média Umidade',   value: stats.humidity != null ? stats.humidity.toFixed(1) + '%'  : '--', color: 'var(--accent2)' },
-              { label: 'Pontos de dados',   value: data.length,                                                             color: 'var(--muted)' },
+              ind
+                ? { label: 'Therma desligado', value: stats.off != null ? Math.round(stats.off * 100) + '% do tempo' : '--', color: 'var(--off)' }
+                : { label: 'Pontos de dados', value: data.length, color: 'var(--muted)' },
               { label: 'Período',           value: PERIODS.find(p => p.key === period)?.label,                              color: 'var(--muted)' },
             ].map(({ label, value, color }) => (
               <div key={label} style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 10, padding: '14px 18px' }}>
@@ -169,7 +173,7 @@ export default function ReportsPage({ kind = 'thguard' }) {
                 <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
                   <thead style={{ position: 'sticky', top: 0, background: 'var(--surface)' }}>
                     <tr style={{ borderBottom: '1px solid var(--border)' }}>
-                      {['Data', 'Temp média (°C)', ind ? 'Tensão média (V)' : 'Umidade média (%)'].map(h => (
+                      {['Data', 'Temp média (°C)', ind ? 'Tensão média (V)' : 'Umidade média (%)', ...(ind ? ['Indicador Therma'] : [])].map(h => (
                         <th key={h} style={{ padding: '8px 12px', textAlign: 'left', fontSize: 10, color: 'var(--muted)', fontFamily: 'var(--font-mono)', textTransform: 'uppercase' }}>{h}</th>
                       ))}
                     </tr>
@@ -178,8 +182,15 @@ export default function ReportsPage({ kind = 'thguard' }) {
                     {data.map((r, i) => (
                       <tr key={i} style={{ borderBottom: '1px solid var(--border)' }}>
                         <td style={{ padding: '7px 12px', fontFamily: 'var(--font-mono)', color: 'var(--muted)' }}>{r.day}</td>
-                        <td style={{ padding: '7px 12px', fontFamily: 'var(--font-mono)', color: 'var(--temp)' }}>{r.temperature ?? '--'}</td>
+                        <td style={{ padding: '7px 12px', fontFamily: 'var(--font-mono)', color: r.temperature == null && ind && r.offPct >= 100 ? 'var(--off)' : 'var(--temp)' }}>
+                          {r.temperature ?? (ind && r.offPct >= 100 ? 'desligado' : '--')}
+                        </td>
                         <td style={{ padding: '7px 12px', fontFamily: 'var(--font-mono)', color: 'var(--accent2)' }}>{r[f2] ?? '--'}</td>
+                        {ind && (
+                          <td style={{ padding: '7px 12px', fontFamily: 'var(--font-mono)', color: r.offPct > 0 ? 'var(--off)' : 'var(--muted)' }}>
+                            {r.offPct <= 0 ? 'Ligado' : r.offPct >= 100 ? 'Desligado o dia todo' : `Desligado ${r.offPct}% do dia`}
+                          </td>
+                        )}
                       </tr>
                     ))}
                   </tbody>

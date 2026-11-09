@@ -3,9 +3,9 @@ import { useParams, useNavigate } from 'react-router-dom'
 import { api } from '../hooks/api'
 import { useAuth } from '../context/AuthContext'
 import { useRealtimeData } from '../hooks/useRealtimeData'
-import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, ReferenceLine } from 'recharts'
-import { ArrowLeft, Thermometer, Zap, Activity, Wifi, RefreshCw, Trash2, Save, Lightbulb, Download, RotateCcw, Crosshair } from 'lucide-react'
-import { IND_DEFAULTS, convertMv, statusOf, FAULT_INFO } from '../lib/industrial'
+import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, ReferenceLine, ReferenceArea } from 'recharts'
+import { ArrowLeft, Thermometer, Zap, Activity, Wifi, RefreshCw, Trash2, Save, Lightbulb, Download, RotateCcw, Crosshair, PowerOff } from 'lucide-react'
+import { IND_DEFAULTS, convertMv, statusOf, FAULT_INFO, OFF_LABEL, isOff, offSpans } from '../lib/industrial'
 
 const RANGES = [
   { label: '1h',  value: '1h' },
@@ -25,7 +25,7 @@ const CAL_FIELDS = [
   { key: 'gain',       label: 'Ganho (ajuste fino)',                  step: 0.001, hint: '1,000 = sem ajuste' },
   { key: 'offsetTemp', label: 'Offset de temperatura (°C)',          step: 0.1,  hint: 'Correção final em graus' },
   { key: 'faultV',     label: 'Falha upscale acima de (V)',          step: 0.1,  hint: 'PT100 aberto leva a saída a ~11–12 V' },
-  { key: 'lowV',       label: 'Sem sinal abaixo de (V)',             step: 0.01, hint: '0 desativa' },
+  { key: 'offV',       label: 'Área morta: Therma desligado abaixo de (V)', step: 0.05, hint: 'Abaixo disso a temperatura é descartada e o painel mostra "Indicador Therma desligado". Não gera alerta. 0 desativa' },
   { key: 'interval',   label: 'Intervalo de envio do ESP (s)',       step: 1,    hint: '2 a 300 s — enviado ao sensor' },
 ]
 
@@ -77,6 +77,7 @@ export default function IndustrialDetailPage() {
         ts: fmtTs(new Date(d.ts)),
         temperature: d.temperature != null ? +d.temperature.toFixed(1) : null,
         voltage:     d.voltage     != null ? +d.voltage.toFixed(3)     : null,
+        off:         d.off ?? 0,
       })))
     }).catch(console.error)
   }, [id, range])
@@ -90,6 +91,7 @@ export default function IndustrialDetailPage() {
         ts: new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }),
         temperature: msg.temperature != null ? +msg.temperature.toFixed(1) : null,
         voltage: msg.voltage,
+        off: msg.fault === 'indicator_off' ? 1 : 0,
       }])
     }
     if (msg.type === 'status') {
@@ -154,8 +156,10 @@ export default function IndustrialDetailPage() {
 
   const t = live?.temperature
   const hasT = typeof t === 'number'
-  const danger = hasT && t >= sensor.tempLimit
+  const off = isOff(live)
+  const danger = !off && hasT && t >= sensor.tempLimit
   const st = statusOf(sensor, live)
+  const spans = offSpans(history)
   const preview = live?.mv != null ? convertMv(live.mv, cal) : null
   const calChanged = CAL_FIELDS.some(f => Number(cal[f.key]) !== Number((sensor.industrial || IND_DEFAULTS)[f.key]))
 
@@ -206,9 +210,11 @@ export default function IndustrialDetailPage() {
 
       {/* Leituras */}
       <div className="ind-live" style={{ display: 'grid', gap: 12, marginBottom: 20 }}>
-        <Card icon={<Thermometer size={16} color={danger ? 'var(--danger)' : 'var(--temp)'} />} label="Temperatura" danger={danger}>
-          <Big color={danger ? 'var(--danger)' : 'var(--temp)'} value={hasT ? t.toFixed(1) : '—'} unit="°C" />
-          <Sub>Limite {sensor.tempLimit} °C · faixa {sensor.industrial?.rangeMin ?? 0}–{sensor.industrial?.rangeMax ?? 150} °C</Sub>
+        <Card icon={off ? <PowerOff size={16} color="var(--off)" /> : <Thermometer size={16} color={danger ? 'var(--danger)' : 'var(--temp)'} />} label="Temperatura" danger={danger}>
+          {off
+            ? <div style={{ fontFamily: 'var(--font-mono)', fontSize: 20, fontWeight: 700, color: 'var(--off)', lineHeight: 1.4 }}>DESLIGADO</div>
+            : <Big color={danger ? 'var(--danger)' : 'var(--temp)'} value={hasT ? t.toFixed(1) : '—'} unit="°C" />}
+          <Sub>{off ? OFF_LABEL + ' — temperatura não registrada' : `Limite ${sensor.tempLimit} °C · faixa ${sensor.industrial?.rangeMin ?? 0}–${sensor.industrial?.rangeMax ?? 150} °C`}</Sub>
         </Card>
         <Card icon={<Zap size={16} color="var(--accent2)" />} label="Saída do transmissor">
           <Big color="var(--accent2)" value={live?.voltage != null ? live.voltage.toFixed(2) : '—'} unit="V" />
@@ -267,13 +273,23 @@ export default function IndustrialDetailPage() {
                 <XAxis dataKey="ts" tick={{ fill: 'var(--muted)', fontSize: 9 }} interval="preserveStartEnd" />
                 <YAxis yAxisId="t" tick={{ fill: 'var(--muted)', fontSize: 9 }} width={36} domain={yDomain} />
                 {showV && <YAxis yAxisId="v" orientation="right" tick={{ fill: 'var(--muted)', fontSize: 9 }} width={36} domain={[0, 'auto']} />}
-                <Tooltip contentStyle={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 6, fontSize: 11 }} labelStyle={{ color: 'var(--muted)' }} />
+                <Tooltip content={<ChartTip />} />
+                {spans.map((sp, i) => (
+                  <ReferenceArea key={i} yAxisId="t" x1={sp.x1} x2={sp.x2} fill="var(--off)" fillOpacity={0.14} stroke="none" ifOverflow="hidden"
+                    label={i === 0 ? { value: 'Therma desligado', fill: 'var(--off)', fontSize: 10, position: 'insideTop' } : undefined} />
+                ))}
                 <ReferenceLine yAxisId="t" y={sensor.tempLimit} stroke="var(--danger)" strokeDasharray="4 4"
                   label={{ value: `limite ${sensor.tempLimit}°C`, fill: 'var(--danger)', fontSize: 10, position: 'insideTopRight' }} />
-                <Line yAxisId="t" type="monotone" dataKey="temperature" stroke="var(--temp)" dot={false} name="Temp °C" strokeWidth={2} connectNulls isAnimationActive={false} />
+                <Line yAxisId="t" type="monotone" dataKey="temperature" stroke="var(--temp)" dot={false} name="Temp °C" strokeWidth={2} connectNulls={false} isAnimationActive={false} />
                 {showV && <Line yAxisId="v" type="monotone" dataKey="voltage" stroke="var(--accent2)" dot={false} name="Tensão V" strokeWidth={1.5} connectNulls isAnimationActive={false} />}
               </LineChart>
             </ResponsiveContainer>
+          )}
+          {spans.length > 0 && (
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 11, color: 'var(--muted)', marginTop: 8 }}>
+              <span style={{ width: 12, height: 12, borderRadius: 3, background: 'var(--off)', opacity: 0.45, display: 'inline-block' }} />
+              {OFF_LABEL} — sem registro de temperatura nesses períodos
+            </div>
           )}
         </div>
       )}
@@ -313,7 +329,7 @@ export default function IndustrialDetailPage() {
                   <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
                     <MiniStat label="Valor atual (salvo)" value={hasT ? `${t.toFixed(1)} °C` : '—'} sub={live.voltage != null ? `${live.voltage.toFixed(2)} V` : ''} />
                     <MiniStat label="Com os valores editados" highlight={calChanged}
-                      value={preview.temperature != null ? `${preview.temperature.toFixed(1)} °C` : 'FALHA'} sub={`${preview.voltage.toFixed(2)} V${preview.fault ? ' · ' + FAULT_INFO[preview.fault].label : ''}`} />
+                      value={preview.temperature != null ? `${preview.temperature.toFixed(1)} °C` : preview.fault === 'indicator_off' ? 'DESLIGADO' : 'FALHA'} sub={`${preview.voltage.toFixed(2)} V${preview.fault ? ' · ' + FAULT_INFO[preview.fault].label : ''}`} />
                   </div>
                   <div style={{ marginTop: 16, paddingTop: 14, borderTop: '1px solid var(--border)' }}>
                     <label style={lbl}>Ajuste por termômetro de referência</label>
@@ -390,6 +406,23 @@ export default function IndustrialDetailPage() {
           {status}
         </div>
       )}
+    </div>
+  )
+}
+
+// Tooltip do grafico: mostra o estado do indicador Therma
+function ChartTip({ active, payload, label }) {
+  if (!active || !payload || !payload.length) return null
+  const d = payload[0].payload
+  const off = d.off ?? 0
+  return (
+    <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 6, padding: '8px 10px', fontSize: 11 }}>
+      <div style={{ color: 'var(--muted)', marginBottom: 4 }}>{label}</div>
+      {d.temperature != null && <div style={{ color: 'var(--temp)' }}>Temp: {d.temperature} °C</div>}
+      {d.voltage != null && <div style={{ color: 'var(--accent2)' }}>Tensão: {Number(d.voltage).toFixed(2)} V</div>}
+      {off >= 0.999 || (off > 0 && d.temperature == null)
+        ? <div style={{ color: 'var(--off)', fontWeight: 700 }}>{OFF_LABEL}</div>
+        : off > 0 && <div style={{ color: 'var(--off)' }}>{OFF_LABEL} {Math.round(off * 100)}% do período</div>}
     </div>
   )
 }

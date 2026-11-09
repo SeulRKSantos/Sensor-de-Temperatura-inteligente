@@ -2,7 +2,7 @@ const mqtt = require('mqtt');
 const { writePoint, writeIndustrialPoint } = require('./influx');
 const { broadcast } = require('./websocket');
 const db = require('../models/db');
-const { processReading, processIndustrial } = require('./alertManager');
+const { processReading, processIndustrial, isIndicatorOff } = require('./alertManager');
 const industrial = require('./industrial');
 
 let client;
@@ -150,14 +150,14 @@ async function handleIndustrialData(sensor, data) {
     return;
   }
   if (!sensor.industrial) await db.ensureIndustrialConfig(sensor.id);
-  const r = industrial.convert(mv, sensor.industrial);
+  const r = industrial.convert(mv, sensor.industrial, isIndicatorOff(sensor.id));
   const spread = Number.isFinite(Number(data.spread)) ? Number(data.spread) : null;
 
   writeIndustrialPoint(sensor.id, { ...r, spread });
   const reading = {
     type: 'reading', kind: 'industrial', sensorId: sensor.id,
     temperature: r.temperature, voltage: r.voltage, mv: r.mv, spread,
-    fault: r.faultLabel, ts: Date.now(),
+    fault: r.faultLabel, off: r.off, ts: Date.now(),
   };
   industrial.lastReading[sensor.id] = reading;
   broadcast(reading);

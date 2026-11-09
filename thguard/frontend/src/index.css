@@ -12,6 +12,7 @@
   --danger:    #e03c3c;
   --warn:      #e8950a;
   --temp:      #f5c518;
+  --off:       #8e8cd8;   /* indicador Therma desligado (estado normal, nao alarme) */
   --ok:        #1a4fd6;
   --font-mono: 'Space Mono', monospace;
   --font-body: 'DM Sans', sans-serif;

@@ -113,12 +113,24 @@ async function processIndustrial(sensorId, r) {
   if (r.temperature != null) {
     await processReading(sensorId, r.temperature, null, data);
   } else {
-    // Upscale: sem temperatura valida, mas o sensor esta vivo
+    // Upscale ou indicador desligado: sem temperatura valida, mas o sensor esta vivo
     await touch(sensorId, data);
   }
 
   const s = alertState[sensorId];
   const now = Date.now();
+
+  // Area morta: indicador Therma desligado faz parte da operacao normal.
+  // Nao e falha, nao gera e-mail e nao conta para normalizar uma falha.
+  if (r.off) {
+    if (!s.indicatorOff) console.log(`[IND] ${sensorId} indicador Therma desligado (V=${r.voltage})`);
+    s.indicatorOff = true;
+    await db.updateSensor(sensorId, { alertActive: s.faultActive ? 1 : 0 });
+    return;
+  }
+  if (s.indicatorOff) console.log(`[IND] ${sensorId} indicador Therma ligado (V=${r.voltage})`);
+  s.indicatorOff = false;
+
   if (r.fault) {
     s.faultCount = (s.faultCount || 0) + 1;
     s.faultOkCount = 0;
@@ -145,6 +157,11 @@ async function processIndustrial(sensorId, r) {
     }
   }
   await db.updateSensor(sensorId, { alertActive: s.tempHigh || s.faultActive ? 1 : 0 });
+}
+
+// Estado de area morta do sensor (para a histerese da conversao)
+function isIndicatorOff(sensorId) {
+  return !!(alertState[sensorId] && alertState[sensorId].indicatorOff);
 }
 
 // Marca o sensor como vivo sem avaliar temperatura
@@ -223,4 +240,4 @@ function getAlertState() {
   return alertState;
 }
 
-module.exports = { processReading, processIndustrial, startOfflineChecker, getAlertState };
+module.exports = { processReading, processIndustrial, isIndicatorOff, startOfflineChecker, getAlertState };

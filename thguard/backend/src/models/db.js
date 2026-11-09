@@ -120,11 +120,14 @@ async function ensureSchema() {
     gain        DOUBLE NOT NULL DEFAULT 1,
     offset_temp DOUBLE NOT NULL DEFAULT 0,
     fault_v     DOUBLE NOT NULL DEFAULT 10.5,
-    low_v       DOUBLE NOT NULL DEFAULT 0.05,
+    off_v       DOUBLE NOT NULL DEFAULT 0.75,
     interval_s  INT   NOT NULL DEFAULT 5,
     updated_at  DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     CONSTRAINT fk_industrial_sensor FOREIGN KEY (sensor_id) REFERENCES sensors(id) ON DELETE CASCADE
   )`);
+  // Area morta (indicador Therma desligado). Substitui o antigo low_v (0,05 V),
+  // que fica na tabela sem uso. Bancos existentes recebem 0,75 V.
+  await query(`ALTER TABLE industrial_config ADD COLUMN IF NOT EXISTS off_v DOUBLE NOT NULL DEFAULT 0.75 AFTER fault_v`);
   console.log('[DB] Schema verificado (sensores industriais).');
 }
 let schemaReady = null;
@@ -143,13 +146,13 @@ function schema() {
 const IND_MAP = {
   rangeMin:'range_min', rangeMax:'range_max', vFull:'v_full', divisor:'divisor',
   offsetMv:'offset_mv', gain:'gain', offsetTemp:'offset_temp', faultV:'fault_v',
-  lowV:'low_v', interval:'interval_s',
+  offV:'off_v', interval:'interval_s',
 };
 const SENSOR_SELECT = `SELECT s.id,s.mac,s.kind,s.model,s.fw,s.name,s.location,s.tag,s.online,
     s.last_seen as lastSeen,s.ip,s.ssid,s.temp_limit as tempLimit,s.humid_limit as humidLimit,
     s.alert_active as alertActive,s.created_at as createdAt,
     ic.range_min,ic.range_max,ic.v_full,ic.divisor,ic.offset_mv,ic.gain,ic.offset_temp,
-    ic.fault_v,ic.low_v,ic.interval_s
+    ic.fault_v,ic.off_v,ic.interval_s
   FROM sensors s LEFT JOIN industrial_config ic ON ic.sensor_id = s.id`;
 
 function mapSensor(r) {

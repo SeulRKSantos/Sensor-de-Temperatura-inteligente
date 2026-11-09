@@ -31,7 +31,7 @@ T       = faixa_min + (V_tx / fundo_escala) × (temperatura_de_relação − fai
 | Ganho | `gain` | 1 | ajuste fino |
 | Offset de temperatura | `offset_temp` | 0 °C | o painel calcula a partir de um termômetro de referência |
 | Falha upscale acima de | `fault_v` | 10,5 V | PT100 aberto; a temperatura é descartada |
-| Sem sinal abaixo de | `low_v` | 0,05 V | fio solto / transmissor sem alimentação (0 desativa) |
+| Área morta: Therma desligado abaixo de | `off_v` | 0,75 V | ver "Área morta" abaixo (0 desativa) |
 | Intervalo de envio | `interval_s` | 5 s | reenviado ao ESP pela config retida |
 
 A mesma fórmula está em `backend/src/services/industrial.js` (valor oficial) e em
@@ -56,14 +56,33 @@ Mesmo fluxo de registro por MAC dos sensores DHT, com `"kind":"industrial"`:
 - Tabela `industrial_config` (1:1 com o sensor, `ON DELETE CASCADE`).
 - As duas mudanças são criadas **no boot do backend** (`db.schema()`, `ALTER ... IF NOT EXISTS`),
   então bancos existentes são atualizados sem rodar SQL. O `init.sql` já cria tudo numa instalação nova.
-- InfluxDB: measurement `industrial` com `temperature`, `voltage`, `mv`, `spread` e `fault`
-  (0 normal, 1 upscale, 2 sem sinal). Em upscale o campo `temperature` não é gravado.
+- InfluxDB: measurement `industrial` com `temperature`, `voltage`, `mv`, `spread`, `fault`
+  (0 normal, 1 upscale, 2 indicador desligado) e `off` (1 = indicador Therma desligado).
+  Em upscale ou com o indicador desligado o campo `temperature` não é gravado.
+- A coluna antiga `low_v` (0,05 V) ficou na tabela sem uso; foi substituída por `off_v`.
   Os DHT continuam em `environment`.
+
+## Área morta (indicador Therma desligado)
+
+Desligar o indicador microprocessado Therma faz parte da operação. Sem o indicador, a entrada
+do ESP fica sem sinal e o ADC lê a tensão residual do próprio pino, que seria convertida numa
+temperatura falsa. Por isso, com a saída do indicador **abaixo de `off_v` (0,75 V)**:
+
+- a temperatura é descartada (não vai para o InfluxDB nem para os alarmes);
+- o painel mostra **DESLIGADO / Indicador Therma desligado** no card e no detalhe;
+- o gráfico deixa uma lacuna sombreada "Therma desligado" nesses períodos;
+- os CSV (download do painel e anexos dos e-mails) ganham a coluna **Indicador Therma**
+  (`Ligado`, `Indicador Therma desligado` ou `... X% do periodo` para janelas parciais);
+- o relatório mostra a porcentagem do tempo com o indicador desligado;
+- **não** é falha: não dispara "Falha no Sensor" nem mantém alarme ativo.
+
+Para não oscilar no limiar, o sensor só volta a "ligado" acima de `off_v + 0,05 V`.
+O limiar é ajustável por sensor em **Configurar → Calibração**.
 
 ## Alertas
 
 Temperatura alta/normal (mesma lógica dos DHT: debounce de 3 min e reenvio a cada 30 min),
-**falha no sensor** e falha normalizada (confirmadas em 3 leituras seguidas), offline/online e
+**falha no sensor** (upscale) e falha normalizada (confirmadas em 3 leituras seguidas), offline/online e
 relatórios diário/semanal/mensal com CSV (temperatura + tensão do transmissor).
 
 Variáveis extras nos e-mails: `{{voltage}}`, `{{fault}}`, `{{range_min}}`, `{{range_max}}`, `{{tag}}`.

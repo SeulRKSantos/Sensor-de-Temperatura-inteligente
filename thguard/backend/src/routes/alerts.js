@@ -102,8 +102,9 @@ router.get('/:sensorId/report/:period', auth(), checkSensorAccess, async (req, r
     if (req.query.format === 'csv') {
       const ind = req.sensor.kind === 'industrial';
       const second = ind ? 'voltage' : 'humidity';
-      const csv = [`timestamp,temperature,${second}`,
-        ...data.map(r => `${r.ts},${r.temperature??''},${r[second]??''}`)
+      const csv = [`timestamp,temperature,${second}` + (ind ? ',indicador_therma,fracao_desligado' : ''),
+        ...data.map(r => `${r.ts},${r.temperature??''},${r[second]??''}` +
+          (ind ? `,"${r.status}",${r.off ?? 0}` : ''))
       ].join('\n');
       res.setHeader('Content-Type','text/csv');
       res.setHeader('Content-Disposition',

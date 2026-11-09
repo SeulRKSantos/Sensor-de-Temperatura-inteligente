@@ -3,8 +3,8 @@ import { useNavigate } from 'react-router-dom'
 import { api } from '../hooks/api'
 import { useAuth } from '../context/AuthContext'
 import { useRealtimeData } from '../hooks/useRealtimeData'
-import { Factory, Wifi, WifiOff, AlertTriangle, Zap } from 'lucide-react'
-import { statusOf, FAULT_INFO } from '../lib/industrial'
+import { Factory, Wifi, WifiOff, AlertTriangle, Zap, PowerOff } from 'lucide-react'
+import { statusOf, FAULT_INFO, isOff } from '../lib/industrial'
 
 export default function IndustrialDashboardPage() {
   const { getToken } = useAuth()
@@ -43,7 +43,8 @@ export default function IndustrialDashboardPage() {
 
   const online = sensors.filter(s => s.online).length
   const alarm  = sensors.filter(s => s.alertActive).length
-  const faults = sensors.filter(s => s.online && live[s.id]?.fault).length
+  const faults = sensors.filter(s => s.online && live[s.id]?.fault === 'upscale').length
+  const offs   = sensors.filter(s => s.online && isOff(live[s.id])).length
 
   // Agrupa pelo grupo (tag) do sensor
   const groups = {}
@@ -53,7 +54,7 @@ export default function IndustrialDashboardPage() {
   return (
     <div>
       <style>{`
-        .ind-stats { grid-template-columns: repeat(4,1fr) !important; }
+        .ind-stats { grid-template-columns: repeat(5,1fr) !important; }
         .ind-grid  { grid-template-columns: repeat(auto-fill,minmax(290px,1fr)) !important; }
         @media(max-width:768px){
           .ind-stats { grid-template-columns: repeat(2,1fr) !important; }
@@ -66,7 +67,7 @@ export default function IndustrialDashboardPage() {
           <Factory size={18} color="var(--accent2)" /> Sensores industriais
         </h1>
         <p style={{ color: 'var(--muted)', fontSize: 13, marginTop: 2 }}>
-          {sensors.length} sensores · {online} online · {alarm} em alarme · {faults} com falha de sinal
+          {sensors.length} sensores · {online} online · {alarm} em alarme · {faults} com falha · {offs} com indicador Therma desligado
         </p>
       </div>
 
@@ -74,7 +75,8 @@ export default function IndustrialDashboardPage() {
         <Stat label="Sensores" value={sensors.length} color="var(--accent2)" icon={<Factory size={16} color="var(--accent2)" />} />
         <Stat label="Online"   value={online} color="var(--accent)" icon={<Wifi size={16} color="var(--accent)" />} />
         <Stat label="Alarme"   value={alarm}  color={alarm ? 'var(--danger)' : 'var(--muted)'} icon={<AlertTriangle size={16} color={alarm ? 'var(--danger)' : 'var(--muted)'} />} />
-        <Stat label="Falha de sinal" value={faults} color={faults ? 'var(--warn)' : 'var(--muted)'} icon={<Zap size={16} color={faults ? 'var(--warn)' : 'var(--muted)'} />} />
+        <Stat label="Falha upscale" value={faults} color={faults ? 'var(--danger)' : 'var(--muted)'} icon={<Zap size={16} color={faults ? 'var(--danger)' : 'var(--muted)'} />} />
+        <Stat label="Therma desligado" value={offs} color={offs ? 'var(--off)' : 'var(--muted)'} icon={<PowerOff size={16} color={offs ? 'var(--off)' : 'var(--muted)'} />} />
       </div>
 
       {loaded && sensors.length === 0 && (
@@ -103,7 +105,8 @@ function SensorCard({ sensor, live, onClick }) {
   const t = live?.temperature
   const hasT = typeof t === 'number'
   const st = statusOf(sensor, live)
-  const danger = sensor.alertActive || (hasT && t >= sensor.tempLimit)
+  const off = isOff(live)
+  const danger = !off && (sensor.alertActive || (hasT && t >= sensor.tempLimit))
   const span = (cal.rangeMax - cal.rangeMin) || 1
   const pct = hasT ? Math.max(0, Math.min(100, ((t - cal.rangeMin) / span) * 100)) : 0
   const limPct = Math.max(0, Math.min(100, ((sensor.tempLimit - cal.rangeMin) / span) * 100))
@@ -125,10 +128,18 @@ function SensorCard({ sensor, live, onClick }) {
       </div>
 
       <div style={{ display: 'flex', alignItems: 'baseline', gap: 6 }}>
-        <span style={{ fontFamily: 'var(--font-mono)', fontSize: 34, fontWeight: 700, lineHeight: 1, color: danger ? 'var(--danger)' : 'var(--temp)' }}>
-          {hasT ? t.toFixed(1) : '—'}
-        </span>
-        <span style={{ fontSize: 13, color: 'var(--muted)' }}>°C</span>
+        {off ? (
+          <span style={{ fontFamily: 'var(--font-mono)', fontSize: 22, fontWeight: 700, lineHeight: 1.55, color: 'var(--off)', display: 'flex', alignItems: 'center', gap: 6 }}>
+            <PowerOff size={18} /> DESLIGADO
+          </span>
+        ) : (
+          <>
+            <span style={{ fontFamily: 'var(--font-mono)', fontSize: 34, fontWeight: 700, lineHeight: 1, color: danger ? 'var(--danger)' : 'var(--temp)' }}>
+              {hasT ? t.toFixed(1) : '—'}
+            </span>
+            <span style={{ fontSize: 13, color: 'var(--muted)' }}>°C</span>
+          </>
+        )}
         <span style={{ marginLeft: 'auto', fontSize: 11, color: 'var(--muted)', fontFamily: 'var(--font-mono)' }}>
           {live?.voltage != null ? `${live.voltage.toFixed(2)} V` : '— V'}
         </span>

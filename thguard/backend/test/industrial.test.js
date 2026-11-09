@@ -36,14 +36,28 @@ describe('convert (padrao VA01: 0-150 °C, -16 mV, 5:1)', () => {
     assert.equal(r.temperature, null);
   });
 
-  it('sem sinal abaixo de 0,05 V, mas com temperatura', () => {
-    const r = convert(16);                // 0 V
-    assert.equal(r.fault, FAULT.NO_SIGNAL);
-    assert.equal(r.temperature, 0);
+  it('area morta: abaixo de 0,75 V = indicador Therma desligado, sem temperatura', () => {
+    const r = convert(16 + 120);          // 0,6 V (tensao residual do pino)
+    assert.equal(r.fault, FAULT.INDICATOR_OFF);
+    assert.equal(r.faultLabel, 'indicator_off');
+    assert.equal(r.off, true);
+    assert.equal(r.temperature, null);
+    assert.equal(r.voltage, 0.6);
   });
 
-  it('lowV = 0 desativa o "sem sinal"', () => {
-    assert.equal(convert(16, { lowV: 0 }).fault, FAULT.NONE);
+  it('0,75 V ou mais = ligado', () => {
+    const r = convert(16 + 150);          // 0,75 V
+    assert.equal(r.off, false);
+    assert.equal(r.temperature, 11.25);
+  });
+
+  it('histerese: estando desligado, so religa acima de 0,80 V', () => {
+    assert.equal(convert(16 + 156, DEFAULTS, true).off, true);    // 0,78 V
+    assert.equal(convert(16 + 160, DEFAULTS, true).off, false);   // 0,80 V
+  });
+
+  it('offV = 0 desativa a area morta', () => {
+    assert.equal(convert(16, { offV: 0 }).fault, FAULT.NONE);
   });
 });
 
@@ -72,5 +86,30 @@ describe('validate', () => {
 
   it('rejeita limiar de falha abaixo do fundo de escala', () => {
     assert.equal(validate({ faultV: 8 }).ok, false);
+  });
+
+  it('area morta: aceita 0-5 V abaixo da metade da escala', () => {
+    assert.equal(validate({ offV: 1.2 }).ok, true);
+    assert.equal(validate({ offV: 6 }).ok, false);
+  });
+});
+
+describe('CSV com o estado do indicador Therma', () => {
+  const { offStatus, rowsToCSV } = require('../src/services/influx');
+
+  it('texto por fracao desligada', () => {
+    assert.equal(offStatus(0, true), 'Ligado');
+    assert.equal(offStatus(null, true), 'Ligado');
+    assert.equal(offStatus(1, false), 'Indicador Therma desligado');
+    assert.equal(offStatus(0.25, true), 'Indicador Therma desligado 25% do periodo');
+  });
+
+  it('relatorio industrial tem a coluna; DHT nao', () => {
+    const rows = [{ ts: '09/11 10:00', temperature: '', voltage: '0.420', status: 'Indicador Therma desligado' }];
+    const ind = rowsToCSV(rows, 'daily', 'ind-001').split('\r\n');
+    assert.match(ind[0], /;Indicador Therma$/);
+    assert.equal(ind[1], '09/11 10:00;;0.420;Indicador Therma desligado');
+    const dht = rowsToCSV([{ ts: 'x', temperature: '24.00', humidity: '60.00' }], 'daily', 'sensor-001');
+    assert.doesNotMatch(dht, /Therma/);
   });
 });

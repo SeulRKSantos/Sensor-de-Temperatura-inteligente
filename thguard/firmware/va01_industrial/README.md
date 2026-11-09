@@ -30,7 +30,8 @@ Segurar o botão **BOOT** por 6 s com o ESP ligado apaga a configuração e abre
 
 - Mesma leitura validada: 64 amostras, 500 µs, média aparada 25/25, `analogReadMilliVolts`, 11 dB.
 - O ESP **envia mV do pino** (média do intervalo). A conversão para °C fica no servidor:
-  faixa (0–150 °C), offset −16 mV, fator 5:1, ganho, falha upscale > 10,5 V.
+  faixa (0–150 °C), offset −16 mV, fator 5:1, ganho, falha upscale > 10,5 V e
+  área morta < 0,75 V (indicador Therma desligado).
   Tudo editável no painel, sem regravar o ESP.
 - Wi-Fi principal + reserva, portal `VA01-Setup-XXXX` (http://192.168.4.1) com login.
   Se a rede cair (ex.: o MikroTik volta depois do ESP numa queda de energia), o ESP abre o portal

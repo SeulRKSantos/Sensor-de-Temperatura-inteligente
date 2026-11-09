@@ -10,7 +10,12 @@
 //    T       = range_min + (v_tx / v_full) * (range_max - range_min) + offset_temp
 //
 //    v_tx > fault_v  -> falha "upscale" (PT100 aberto/queimado): temperatura descartada
-//    v_tx < low_v    -> "sem sinal" (fio 11/12 solto, transmissor sem alimentacao)
+//    v_tx < off_v    -> AREA MORTA: indicador Therma desligado. Com o indicador
+//                       desligado a entrada fica sem sinal e o ESP le a tensao
+//                       residual do proprio pino, que viraria uma temperatura falsa.
+//                       Desligar o indicador e parte normal do processo: a temperatura
+//                       e descartada, o estado e registrado e NAO gera alerta de falha.
+//                       Histerese de OFF_HYST_V para nao oscilar perto do limiar.
 // ═══════════════════════════════════════════════════════════════════
 
 const DEFAULTS = {
@@ -22,7 +27,7 @@ const DEFAULTS = {
   gain:       1,      // ajuste fino de ganho (FATOR_CAL)
   offsetTemp: 0,      // ajuste fino em °C
   faultV:     10.5,   // acima disso = falha upscale
-  lowV:       0.05,   // abaixo disso = sem sinal (0 desativa)
+  offV:       0.75,   // area morta: abaixo disso = indicador Therma desligado (0 desativa)
   interval:   5,      // segundos entre envios do ESP
 };
 
@@ -36,24 +41,27 @@ const RULES = {
   gain:       [0.5, 1.5],
   offsetTemp: [-50, 50],
   faultV:     [0.1, 30],
-  lowV:       [0, 5],
+  offV:       [0, 5],
   interval:   [2, 300],
 };
 
-const FAULT = { NONE: 0, UPSCALE: 1, NO_SIGNAL: 2 };
-const FAULT_LABEL = { 0: null, 1: 'upscale', 2: 'no_signal' };
-const FAULT_TEXT  = { 0: 'Normal', 1: 'Falha upscale (PT100 aberto ou acima da faixa)', 2: 'Sem sinal (transmissor sem alimentacao ou fio solto)' };
+const FAULT = { NONE: 0, UPSCALE: 1, INDICATOR_OFF: 2 };
+const FAULT_LABEL = { 0: null, 1: 'upscale', 2: 'indicator_off' };
+const FAULT_TEXT  = { 0: 'Normal', 1: 'Falha upscale (PT100 aberto ou acima da faixa)', 2: 'Indicador Therma desligado' };
+const OFF_HYST_V  = 0.05;   // para sair da area morta: v_tx >= off_v + 0,05 V
 
-function convert(mv, cal) {
+// wasOff: o sensor estava em area morta na leitura anterior (histerese)
+function convert(mv, cal, wasOff = false) {
   const c = { ...DEFAULTS, ...(cal || {}) };
   const mvCorr = mv + c.offsetMv;
   const vTx = (mvCorr / 1000) * c.divisor * c.gain;
+  const offLimit = wasOff ? c.offV + OFF_HYST_V : c.offV;
   let fault = FAULT.NONE;
   if (vTx > c.faultV) fault = FAULT.UPSCALE;
-  else if (c.lowV > 0 && vTx < c.lowV) fault = FAULT.NO_SIGNAL;
+  else if (c.offV > 0 && vTx < offLimit) fault = FAULT.INDICATOR_OFF;
 
   let temperature = c.rangeMin + (vTx / c.vFull) * (c.rangeMax - c.rangeMin) + c.offsetTemp;
-  if (fault === FAULT.UPSCALE) temperature = null;
+  if (fault !== FAULT.NONE) temperature = null;     // upscale ou indicador desligado: valor sem significado
   else temperature = Math.round(temperature * 100) / 100;
 
   return {
@@ -62,6 +70,7 @@ function convert(mv, cal) {
     mv:      Math.round(mv * 10) / 10,
     fault,
     faultLabel: FAULT_LABEL[fault],
+    off: fault === FAULT.INDICATOR_OFF,
   };
 }
 
@@ -81,10 +90,12 @@ function validate(input, current) {
     return { ok: false, error: 'A temperatura maxima da faixa deve ser maior que a minima' };
   if (merged.faultV <= merged.vFull * 0.9)
     return { ok: false, error: 'O limiar de falha deve ficar acima do fundo de escala do transmissor' };
+  if (merged.offV >= merged.vFull * 0.5)
+    return { ok: false, error: 'A area morta deve ficar bem abaixo do fundo de escala do transmissor' };
   return { ok: true, value: out };
 }
 
 // Ultima leitura de cada sensor industrial (para o painel nao abrir vazio)
 const lastReading = {};
 
-module.exports = { DEFAULTS, RULES, FAULT, FAULT_LABEL, FAULT_TEXT, convert, validate, lastReading };
+module.exports = { DEFAULTS, RULES, FAULT, FAULT_LABEL, FAULT_TEXT, OFF_HYST_V, convert, validate, lastReading };
