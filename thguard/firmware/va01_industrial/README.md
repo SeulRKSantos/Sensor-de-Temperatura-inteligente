@@ -36,9 +36,9 @@ Segurar o botão **BOOT** por 6 s com o ESP ligado apaga a configuração e abre
 - Wi-Fi principal + reserva, portal `VA01-Setup-XXXX` (http://192.168.4.1) com login.
   Se a rede cair (ex.: o MikroTik volta depois do ESP numa queda de energia), o ESP abre o portal
   **e continua tentando a rede salva a cada 60 s**.
-- MQTT com usuário/senha (o broker de produção exige; o doc do VA01 dizia "sem autenticação").
+- MQTT com usuário/senha via `secrets.h` (o broker exige autenticação).
 - Watchdog de 60 s.
-- Servidor padrão `10.10.0.208` (IP cabeado; o `.209` é o Wi-Fi do servidor).
+- Servidor padrão `10.10.0.208` (alterável no portal ou pelo painel).
 
 ## Protocolo
 
@@ -49,14 +49,15 @@ Igual ao TH-GUARD, com `"kind":"industrial"`:
 <- thguard/<MAC>/config    {"sensor_id":"ind-001","interval":5}           (retained)
 -> thguard/ind-001/data    {"mv":412.3,"spread":2.1,"n":5,"ts":123456}
 -> thguard/ind-001/status  {"ip","ssid","rssi","uptime","mac","kind","model","fw","interval"}
-<- thguard/ind-001/cmd     {"action":"restart" | "reset_id" | "identify" | "read_now" | "set_config", ...}
+<- thguard/ind-001/cmd     {"action":"restart" | "reset_eeprom" | "identify" | "read_now" | "set_config", ...}
 ```
 
-`set_config` aceita `ssid1`, `pass1`, `ssid2`, `pass2`, `serverIp`, `serverPort` e `interval` (2–300 s).
+`reset_eeprom` (botão "Apagar ID no ESP" do painel) apaga o ID salvo e força novo registro;
+o firmware também aceita `reset_id`. `set_config` aceita `ssid1`, `pass1`, `ssid2`, `pass2`, `serverIp`, `serverPort` e `interval` (2–300 s).
 
-> **Importante:** grave este firmware só depois que o backend com suporte a sensores industriais
-> estiver no ar. O backend atual cria qualquer registro como `sensor-NNN` e espera
-> `temperature`/`humidity` nos dados.
+> **Importante:** o servidor precisa estar com o backend que suporta sensores industriais
+> (seção **Industrial** no menu do painel). Um backend anterior registraria o VA01 como
+> sensor DHT (`sensor-NNN`) e descartaria as leituras.
 
 ## Gravar (notebook)
 
@@ -64,7 +65,7 @@ Bibliotecas: **PubSubClient** e **ArduinoJson** (v7).
 
 ```bash
 arduino-cli lib install PubSubClient ArduinoJson
-cd ~/Projects/Sensor-de-Temperatura-inteligente-com-sistema-Web/thguard/firmware/va01_industrial
+cd Sensor-de-Temperatura-inteligente/thguard/firmware/va01_industrial
 cp secrets.h.example secrets.h
 nano secrets.h
 arduino-cli compile --fqbn esp32:esp32:esp32 .
@@ -72,4 +73,4 @@ arduino-cli upload -p /dev/ttyACM0 --fqbn esp32:esp32:esp32 .
 arduino-cli monitor -p /dev/ttyACM0 -c baudrate=115200
 ```
 
-Confira se `secrets.h` está no `.gitignore` antes do commit.
+O `secrets.h` está no `.gitignore` e não vai para o repositório.

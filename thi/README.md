@@ -30,7 +30,6 @@ ESP32 ── MQTT 1883 ──▶ Mosquitto ──▶ Node-RED ──▶ InfluxDB
 | InfluxDB 2 | `thi-influxdb` | 8086 | Séries temporais (org `iot`, bucket `sensores`, retenção **48 h**) |
 | Node-RED | `thi-nodered` | 1880 | Recebe o MQTT e grava no InfluxDB |
 | Grafana | `thi-grafana` | 3000 | Dashboards |
-| SFTPGo | `thi-sftpgo` | 8090 (web), 2022 (SFTP) | Transferência de arquivos |
 
 ## Instalação
 
@@ -82,7 +81,6 @@ docker compose up -d
 | Grafana | http://localhost:3000 | `admin` / `GRAFANA_PASSWORD` do `.env` |
 | InfluxDB | http://localhost:8086 | `admin` / `INFLUX_PASSWORD` do `.env` |
 | Node-RED | http://localhost:1880 | **sem login** — não exponha a porta 1880 fora da rede interna |
-| SFTPGo | http://localhost:8090 | o administrador é criado no primeiro acesso |
 
 ### 6. Node-RED
 

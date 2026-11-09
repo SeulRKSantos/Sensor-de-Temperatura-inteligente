@@ -1,124 +1,123 @@
 # 🌡️ Sensor de Temperatura Inteligente com Sistema Web
 
-[![CI](https://github.com/SeulRKSantos/Sensor-de-Temperatura-inteligente-com-sistema-Web/actions/workflows/ci.yml/badge.svg)](https://github.com/SeulRKSantos/Sensor-de-Temperatura-inteligente-com-sistema-Web/actions/workflows/ci.yml)
+[![CI](https://github.com/SeulRKSantos/Sensor-de-Temperatura-inteligente/actions/workflows/ci.yml/badge.svg)](https://github.com/SeulRKSantos/Sensor-de-Temperatura-inteligente/actions/workflows/ci.yml)
 
-
-Repositório com dois projetos de monitoramento ambiental com ESP + MQTT + painel web, desenvolvidos para uso industrial e predial.
+Monitoramento de temperatura com ESP8266/ESP32, MQTT e painel web, para ambientes
+(temperatura e umidade) e para máquinas industriais (PT100).
 
 ---
 
-## 📁 Estrutura do Repositório
+## 📁 Estrutura do repositório
 
 ```text
-Sensor-de-Temperatura-inteligente-com-sistema-Web/
+Sensor-de-Temperatura-inteligente/
 │
-├── thguard/                          ← Projeto TH-GUARD (DHT22 + ESP8266)
+├── thguard/                          ← TH-GUARD: plataforma principal (em produção)
+│   ├── backend/                      ← API Node.js + Express + WebSocket
+│   ├── frontend/                     ← Painel React + Vite
 │   ├── firmware/
-│   │   ├── thguard_v4_mac.ino        ← Firmware ESP8266 (MQTT 1883 + registro por MAC)
-│   │   └── thguard_v4_local.ino      ← Firmware ESP8266 (versao simplificada)
-│   ├── backend/                      ← API Node.js
-│   │   └── src/
-│   │       ├── models/               ← MariaDB (db.js, migrate.js)
-│   │       ├── routes/               ← auth, sensors, alerts, users, commands
-│   │       └── services/             ← mqtt, influx, email, alertManager, scheduler
-│   ├── frontend/                     ← Interface React + Vite
-│   │   └── src/
-│   │       ├── pages/                ← Dashboard, Sensores, Alertas, Relatórios
-│   │       ├── components/           ← Layout responsivo (desktop + mobile)
-│   │       ├── hooks/                ← WebSocket em tempo real
-│   │       └── context/              ← Autenticação JWT
-│   ├── mosquitto/config/             ← Broker MQTT
-│   │   ├── mosquitto.conf            ← Configuração do broker MQTT (porta 1883)
-│   │   └── acl.conf                  ← Controle de acesso por usuário
-│   ├── mariadb/
-│   │   └── init.sql                  ← Schema do banco de dados
-│   ├── nginx/
-│   │   └── nginx.conf                ← Proxy reverso
-│   ├── docker-compose.yml            ← Stack completa
-│   ├── .env.example                  ← Variáveis de ambiente
-│   └── README.md
+│   │   ├── thguard_v4_mac/           ← ESP8266 + DHT22 (registro por MAC)
+│   │   ├── thguard_v4_local/         ← ESP8266 + DHT22 (versão simplificada)
+│   │   ├── thguard_esp32/            ← ESP32 + DHT22 (mesmo protocolo)
+│   │   └── va01_industrial/          ← ESP32 + PT100 via transmissor 0–10 V (VA01)
+│   ├── docs/INDUSTRIAL.md            ← Sensores industriais: conversão, área morta, deploy
+│   ├── mariadb/init.sql              ← Schema do banco
+│   ├── mosquitto/config/             ← Broker MQTT (mosquitto.conf, acl.conf)
+│   ├── nginx/nginx.conf              ← Proxy reverso (porta 8081)
+│   ├── docker-compose.yml
+│   └── .env.example
 │
-└── thi/                              ← Projeto THI (PT100 + ESP32)
-    ├── firmware/
-    │   └── esp32_mqtt_pt100_v4.ino   ← Firmware ESP32 (4-20mA + MQTT + WiFiManager)
-    ├── mosquitto/config/
-    │   └── mosquitto.conf            ← Configuração do broker MQTT
-    ├── nodered/
-    │   └── flows.json                ← Fluxos Node-RED (MQTT → InfluxDB → alertas)
-    ├── docker-compose.yml            ← Stack: Mosquitto, InfluxDB, Node-RED, Grafana
-    └── README.md
+└── thi/                              ← THI: stack independente PT100 + MAX31865
+    ├── firmware/esp32_mqtt_pt100_v4.ino
+    ├── mosquitto/config/mosquitto.conf
+    ├── nodered/flows.json            ← MQTT → InfluxDB
+    ├── docker-compose.yml            ← Mosquitto, InfluxDB, Node-RED, Grafana
+    └── .env.example
 ```
 
 ---
 
 ## 📦 Projetos
 
-### 🔵 TH-GUARD — Monitoramento com DHT22 + ESP8266
+### 🔵 TH-GUARD — plataforma de monitoramento
 
-Plataforma completa de monitoramento de temperatura e umidade com painel web próprio, banco de dados relacional e suporte a múltiplos sensores.
+Painel web próprio com banco relacional, alertas por e-mail e suporte a dois tipos de sensor:
+
+| Tipo | Hardware | Mede |
+|---|---|---|
+| Ambiente | ESP8266 (NodeMCU) ou ESP32 + DHT22 | Temperatura e umidade |
+| Industrial (VA01) | ESP32 + PT100 → transmissor TxIsoRail 0–10 V | Temperatura de máquina (0–150 °C configurável) |
 
 | Item | Descrição |
 |---|---|
-| **Sensor** | DHT22 (temperatura e umidade) |
-| **Hardware** | NodeMCU 1.0 (ESP8266) |
-| **Comunicação** | MQTT (porta 1883, usuário/senha) |
+| **Comunicação** | MQTT 1883 com usuário/senha e ACL por tópico |
 | **Backend** | Node.js + Express + WebSocket |
 | **Frontend** | React + Vite (responsivo) |
-| **Banco** | MariaDB 11 + InfluxDB 2 |
-| **Broker** | Eclipse Mosquitto 2 |
-| **Deploy** | Docker Compose |
+| **Banco** | MariaDB 11 (cadastro, usuários, alertas) + InfluxDB 2 (séries temporais) |
+| **Deploy** | Docker Compose + Nginx |
 
 **Funcionalidades:**
-- Registro automático de sensores por endereço MAC
-- Dashboard com leituras em tempo real via WebSocket
-- Gráficos históricos (1h, 6h, 24h, 7 dias)
-- Alertas por email com relatórios CSV (diário/semanal/mensal)
-- Controle de acesso por roles (admin, editor, viewer)
-- Autenticação MQTT por usuário/senha com controle de ACL por tópico
-- Interface responsiva para desktop e mobile
+- Registro automático dos sensores por endereço MAC
+- Leituras em tempo real via WebSocket e gráficos históricos
+- Alertas por e-mail e relatórios diário/semanal/mensal com CSV anexo
+- Acesso por perfil (admin, editor, viewer) e por grupo de sensores
+- Seção **Industrial**: calibração editável pelo painel (faixa, offsets, falha upscale)
+  e área morta para o indicador Therma desligado
 
-→ [Documentação completa](./thguard/README.md)
+→ [Documentação do TH-GUARD](./thguard/README.md) · [Sensores industriais](./thguard/docs/INDUSTRIAL.md)
 
 ---
 
-### 🟠 THI — Monitoramento Industrial com PT100 + ESP32
+### 🟠 THI — PT100 com MAX31865 (stack independente)
 
-Sistema de monitoramento de temperatura para aplicações industriais usando sensor PT100 com transmissor 4-20mA e ESP32.
+ESP32 lendo o PT100 direto pelo MAX31865 e publicando via MQTT; Node-RED grava no InfluxDB
+e o Grafana mostra os dados. A medição do VA01 em produção hoje é feita pelo TH-GUARD.
 
 | Item | Descrição |
 |---|---|
-| **Sensor** | PT100 via MAX31865 ou transmissor 4-20mA |
+| **Sensor** | PT100 via MAX31865 (SPI) |
 | **Hardware** | ESP32 |
-| **Comunicação** | MQTT |
-| **Visualização** | Node-RED + Grafana |
-| **Banco** | InfluxDB 2 |
-| **Broker** | Eclipse Mosquitto 2 |
+| **Processamento** | Node-RED |
+| **Banco / dashboards** | InfluxDB 2 + Grafana |
 | **Deploy** | Docker Compose |
 
-→ [Documentação completa](./thi/README.md)
+→ [Documentação do THI](./thi/README.md)
 
 ---
 
-## 🚀 Início Rápido
+## 🚀 Início rápido
 
 ### TH-GUARD
 
 ```bash
 cd thguard
 cp .env.example .env
-# Edite .env com suas credenciais
-docker compose up -d
-# Acesse: http://localhost:8081
+nano .env                 # senhas, JWT_SECRET, ADMIN_PASSWORD, ALLOWED_ORIGINS
 ```
+
+Crie os usuários do broker (passo 3 do [README do TH-GUARD](./thguard/README.md#3--configure-o-mosquitto)) e suba:
+
+```bash
+docker compose up -d
+```
+
+Painel em `http://localhost:8081`, login `admin@thguard.local` com a senha do `ADMIN_PASSWORD`.
 
 ### THI
 
 ```bash
 cd thi
-docker compose up -d
-# Node-RED: http://localhost:1880
-# Grafana:  http://localhost:3000
+cp .env.example .env
+nano .env
 ```
+
+Crie o `passwd` e o `acl.conf` do Mosquitto (passo 3 do [README do THI](./thi/README.md#3-usuários-do-broker-mqtt)) e suba:
+
+```bash
+docker compose up -d
+```
+
+Node-RED em `http://localhost:1880`, Grafana em `http://localhost:3000`.
 
 ---
 

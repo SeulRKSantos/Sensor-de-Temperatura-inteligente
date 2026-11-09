@@ -56,11 +56,11 @@ Mesmo fluxo de registro por MAC dos sensores DHT, com `"kind":"industrial"`:
 - Tabela `industrial_config` (1:1 com o sensor, `ON DELETE CASCADE`).
 - As duas mudanças são criadas **no boot do backend** (`db.schema()`, `ALTER ... IF NOT EXISTS`),
   então bancos existentes são atualizados sem rodar SQL. O `init.sql` já cria tudo numa instalação nova.
+- A coluna antiga `low_v` (0,05 V) ficou na tabela sem uso; foi substituída por `off_v`.
 - InfluxDB: measurement `industrial` com `temperature`, `voltage`, `mv`, `spread`, `fault`
   (0 normal, 1 upscale, 2 indicador desligado) e `off` (1 = indicador Therma desligado).
   Em upscale ou com o indicador desligado o campo `temperature` não é gravado.
-- A coluna antiga `low_v` (0,05 V) ficou na tabela sem uso; foi substituída por `off_v`.
-  Os DHT continuam em `environment`.
+  Os DHT continuam no measurement `environment`.
 
 ## Área morta (indicador Therma desligado)
 
@@ -81,9 +81,10 @@ O limiar é ajustável por sensor em **Configurar → Calibração**.
 
 ## Alertas
 
-Temperatura alta/normal (mesma lógica dos DHT: debounce de 3 min e reenvio a cada 30 min),
+Temperatura alta/normal (mesma lógica dos DHT: reenvio a cada 30 min enquanto persistir e
+normalização só após 3 min abaixo do limite),
 **falha no sensor** (upscale) e falha normalizada (confirmadas em 3 leituras seguidas), offline/online e
-relatórios diário/semanal/mensal com CSV (temperatura + tensão do transmissor).
+relatórios diário/semanal/mensal com CSV (temperatura, tensão do transmissor e estado do indicador Therma).
 
 Variáveis extras nos e-mails: `{{voltage}}`, `{{fault}}`, `{{range_min}}`, `{{range_max}}`, `{{tag}}`.
 
@@ -95,7 +96,7 @@ O servidor não é um clone git: os arquivos são copiados do notebook.
 
 ```bash
 cd ~/thguard-plataform/thguard-platform
-tar czf ~/thguard-antes-industrial-$(date +%Y%m%d).tgz backend/src frontend/src mariadb/init.sql
+tar czf ~/thguard-antes-$(date +%Y%m%d).tgz backend/src frontend/src mariadb/init.sql
 bash mariadb/backup.sh
 ```
 
@@ -108,17 +109,19 @@ scp -r frontend/src ubtserver@10.10.0.208:~/thguard-plataform/thguard-platform/f
 scp mariadb/init.sql ubtserver@10.10.0.208:~/thguard-plataform/thguard-platform/mariadb/
 ```
 
-3. **No servidor**, rebuild:
+3. **No servidor**, rebuild e reinício do Nginx (sem o reinício ele continua apontando para
+   os containers antigos e o painel responde **502**):
 
 ```bash
 cd ~/thguard-plataform/thguard-platform
 docker compose up -d --build backend frontend
+docker restart thguard-nginx
 docker logs thguard-backend --tail 30
 ```
 
 O log deve mostrar `[DB] Schema verificado (sensores industriais).`
 
-Para voltar atrás: extraia o `.tgz` do backup e rode o `docker compose up -d --build` de novo.
+Para voltar atrás: extraia o `.tgz` do backup, rode o `docker compose up -d --build` e reinicie o Nginx de novo.
 As colunas e a tabela novas podem ficar no banco; o código antigo as ignora.
 
 ## Observações
