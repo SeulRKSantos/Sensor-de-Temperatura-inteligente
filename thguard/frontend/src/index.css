@@ -38,3 +38,40 @@ body {
 .text-danger { color: var(--danger); }
 .text-warn { color: var(--warn); }
 .text-muted { color: var(--muted); }
+
+/* Relatórios mensais: calendário */
+.mcal { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 8px; }
+.mcal-wd { font-size: 11px; color: var(--muted); font-family: var(--font-mono); text-align: center; padding-bottom: 2px; }
+.mcal-day {
+  position: relative; min-height: 84px; padding: 10px 10px 12px; text-align: left;
+  background: var(--surface); border: 1px solid var(--border); border-radius: 8px;
+  color: var(--text); font-family: var(--font-body); cursor: pointer;
+  display: flex; flex-direction: column; gap: 4px;
+  transition: border-color .15s, background .15s;
+}
+.mcal-day:hover:not(:disabled) { border-color: var(--accent2); background: rgba(26,79,214,0.08); }
+.mcal-day:focus-visible { outline: 2px solid var(--accent2); outline-offset: 2px; }
+.mcal-day:disabled { cursor: default; opacity: .45; }
+.mcal-day.today { border-color: var(--accent); }
+.mcal-num { font-family: var(--font-mono); font-size: 15px; font-weight: 700; line-height: 1; }
+.mcal-cov { font-size: 11px; color: var(--muted); font-family: var(--font-mono); }
+.mcal-bar { margin-top: auto; height: 4px; border-radius: 2px; background: var(--border); overflow: hidden; }
+.mcal-bar > span { display: block; height: 100%; background: var(--accent2); }
+.mcal-ico { position: absolute; top: 9px; right: 9px; color: var(--muted); }
+.mcal-day:hover:not(:disabled) .mcal-ico { color: var(--accent2); }
+.subtabs { display: flex; gap: 4px; border-bottom: 1px solid var(--border); margin-bottom: 20px; }
+.subtab {
+  padding: 8px 14px; background: none; border: 0; border-bottom: 2px solid transparent; margin-bottom: -1px;
+  color: var(--muted); font-family: var(--font-body); font-size: 13px; cursor: pointer;
+}
+.subtab:hover { color: var(--text); }
+.subtab.active { color: var(--text); border-bottom-color: var(--accent2); font-weight: 600; }
+@media (max-width: 640px) {
+  .mcal { gap: 4px; }
+  .mcal-day { min-height: 58px; padding: 6px; }
+  .mcal-num { font-size: 13px; }
+  .mcal-cov, .mcal-ico { display: none; }
+}
+@media (prefers-reduced-motion: reduce) { .mcal-day { transition: none; } .mcal-spin { animation: none !important; } }
+@keyframes mcal-spin { to { transform: rotate(360deg); } }
+.mcal-spin { animation: mcal-spin 1s linear infinite; }

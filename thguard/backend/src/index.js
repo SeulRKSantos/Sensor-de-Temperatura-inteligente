@@ -11,6 +11,7 @@ const sensorRoutes = require('./routes/sensors');
 const userRoutes = require('./routes/users');
 const commandRoutes = require('./routes/commands');
 const alertRoutes = require('./routes/alerts');
+const reportRoutes = require('./routes/reports');
 
 const app = express();
 app.set('trust proxy', 1); // Nginx proxy
@@ -45,6 +46,7 @@ app.use('/api/sensors', sensorRoutes);
 app.use('/api/users', userRoutes);
 app.use('/api/commands', commandRoutes);
 app.use('/api/alerts', alertRoutes);
+app.use('/api/reports', reportRoutes);
 
 app.get('/api/health', (req, res) => res.json({ status: 'ok', ts: Date.now() }));
 

@@ -88,6 +88,24 @@ relatórios diário/semanal/mensal com CSV (temperatura, tensão do transmissor 
 
 Variáveis extras nos e-mails: `{{voltage}}`, `{{fault}}`, `{{range_min}}`, `{{range_max}}`, `{{tag}}`.
 
+## Relatórios mensais (relatório diário em Excel)
+
+Em **Industrial → Relatórios → Relatórios mensais** o calendário do mês mostra, em cada dia,
+quanto do dia tem leitura. Clicar no dia baixa um `.xlsx` (horário de Brasília):
+
+- **Minuto a minuto:** 1440 linhas (00:00 a 23:59) com a média da temperatura de cada minuto e o
+  estado do indicador: `Ligado`, `Indicador Therma desligado`, `Falha do transmissor` (upscale) ou
+  `Sem leitura`. Nos minutos sem temperatura válida a célula fica vazia (não vira zero).
+- **Gráfico:** temperatura × horário do dia (com a linha do limite quando é um sensor só) e o resumo:
+  mínima, máxima, média e minutos medindo, desligado, em falha, sem leitura e acima do limite.
+
+O seletor permite um sensor ou **todos os industriais** no mesmo arquivo (uma coluna e uma curva por
+sensor). Só admin e editor acessam; cada usuário vê os sensores das suas tags.
+
+API: `GET /api/reports/industrial/days?month=AAAA-MM&sensor=all|ind-NNN` (minutos com leitura por dia)
+e `GET /api/reports/industrial/daily.xlsx?date=AAAA-MM-DD&sensor=all|ind-NNN`. O `.xlsx` é gerado no
+backend sem dependência nova (`services/xlsx.js`).
+
 ## Atualizar o servidor
 
 O servidor não é um clone git: os arquivos são copiados do notebook.

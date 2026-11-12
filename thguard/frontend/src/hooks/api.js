@@ -35,7 +35,10 @@ async function reqRaw(method, path, token) {
     handleUnauthorized()
     throw new Error('Sessao expirada')
   }
-  if (!res.ok) throw new Error(`HTTP ${res.status}`)
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({}))
+    throw new Error(data.error || `HTTP ${res.status}`)
+  }
   return res
 }
 
@@ -70,4 +73,10 @@ export const api = {
   // Relatórios
   getReport:     (sensorId, period, t) => req('GET', `/alerts/${sensorId}/report/${period}`, null, t),
   downloadReport: (sensorId, period, t) => reqRaw('GET', `/alerts/${sensorId}/report/${period}?format=csv`, t),
+
+  // Relatórios mensais (sensores industriais): calendário do mês e .xlsx do dia
+  getIndustrialDays: (month, sensor, t) =>
+    req('GET', `/reports/industrial/days?month=${month}&sensor=${encodeURIComponent(sensor)}`, null, t),
+  downloadIndustrialDay: (date, sensor, t) =>
+    reqRaw('GET', `/reports/industrial/daily.xlsx?date=${date}&sensor=${encodeURIComponent(sensor)}`, t),
 }

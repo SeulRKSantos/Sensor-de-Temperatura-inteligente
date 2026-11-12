@@ -1,8 +1,10 @@
 import { useState, useEffect } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
 import { api } from '../hooks/api'
 import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, Legend } from 'recharts'
 import { Download, BarChart2 } from 'lucide-react'
+import IndustrialMonthlyReports from './IndustrialMonthlyReports'
 
 const PERIODS = [
   { key: 'monthly',    label: 'Mensal (30 dias)',    range: '720h' },
@@ -14,6 +16,8 @@ export default function ReportsPage({ kind = 'thguard' }) {
   const ind = kind === 'industrial'
   const f2 = ind ? 'voltage' : 'humidity'   // segunda serie: tensao do transmissor ou umidade
   const { getToken } = useAuth()
+  const [params, setParams]     = useSearchParams()
+  const aba = ind && params.get('aba') === 'mensal' ? 'mensal' : 'historico'
   const [sensors, setSensors]   = useState([])
   const [selected, setSelected] = useState(null)
   const [period, setPeriod]     = useState('monthly')
@@ -74,9 +78,20 @@ export default function ReportsPage({ kind = 'thguard' }) {
       <div style={{ marginBottom: 24 }}>
         <h1 style={{ fontSize: 20, fontWeight: 600 }}>{ind ? 'Relatórios — Sensores Industriais' : 'Relatórios'}</h1>
         <p style={{ color: 'var(--muted)', fontSize: 13, marginTop: 2 }}>
-          Histórico mensal, semestral e anual por sensor
+          {aba === 'mensal' ? 'Relatório diário minuto a minuto, por dia do mês' : 'Histórico mensal, semestral e anual por sensor'}
         </p>
       </div>
+
+      {ind && (
+        <div className="subtabs" role="tablist" aria-label="Tipo de relatório">
+          {[['historico', 'Histórico'], ['mensal', 'Relatórios mensais']].map(([k, label]) => (
+            <button key={k} role="tab" aria-selected={aba === k} className={`subtab${aba === k ? ' active' : ''}`}
+              onClick={() => setParams(k === 'mensal' ? { aba: 'mensal' } : {}, { replace: true })}>{label}</button>
+          ))}
+        </div>
+      )}
+
+      {aba === 'mensal' ? <IndustrialMonthlyReports /> : <>
 
       {/* Controles */}
       <div style={{ display: 'flex', gap: 12, marginBottom: 20, flexWrap: 'wrap', alignItems: 'center' }}>
@@ -200,6 +215,7 @@ export default function ReportsPage({ kind = 'thguard' }) {
           )}
         </>
       )}
+      </>}
     </div>
   )
 }

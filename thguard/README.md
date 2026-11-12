@@ -35,6 +35,8 @@ graph LR
 - Gráficos históricos (1h, 6h, 24h, 7d; 30d nos industriais)
 - Alertas por email (temperatura alta, umidade alta, sensor offline; falha upscale nos industriais)
 - Relatórios diário/semanal/mensal com CSV anexo
+- Relatórios mensais dos sensores industriais: calendário do mês e, por dia, um Excel com a
+  temperatura minuto a minuto e o gráfico do dia
 - Controle de acesso por roles (admin, editor, viewer) e por grupo (tag) de sensores
 - Sensores industriais (VA01, PT100 0–10 V) em seção própria do painel, com calibração
   editável (faixa / temperatura de relação, offsets, limiares de falha) e área morta para o
