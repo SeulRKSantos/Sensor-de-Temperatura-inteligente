@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { Outlet, NavLink, useNavigate } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
-import { Thermometer, Users, LogOut, Activity, Bell, BarChart2, Menu, X, Factory } from 'lucide-react'
+import { Thermometer, Users, LogOut, Activity, Bell, BarChart2, Menu, X, Factory, ShieldCheck } from 'lucide-react'
 import { useRealtimeData } from '../hooks/useRealtimeData'
 
 export default function Layout() {
@@ -41,6 +41,7 @@ export default function Layout() {
 
         {can(['admin']) && <div style={{ ...sectionStyle, marginTop: 14 }}>Administração</div>}
         {can(['admin']) && <NavLink to="/users" style={navStyle} onClick={closeMenu}><Users size={15} /> Usuários</NavLink>}
+        {can(['admin']) && <NavLink to="/admin" style={navStyle} onClick={closeMenu}><ShieldCheck size={15} /> Painel de administração</NavLink>}
       </nav>
 
       <div style={{ padding: '16px 20px', borderTop: '1px solid var(--border)' }}>

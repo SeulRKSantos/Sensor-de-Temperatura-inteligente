@@ -62,6 +62,10 @@ async function handleRegister(data) {
   const macNorm = mac.toUpperCase().replace(/[^A-F0-9]/g,'').slice(0,12);
   const kind = data.kind === 'industrial' ? 'industrial' : 'thguard';
   const existing = await db.getSensorByMac(macNorm);
+  if (existing && existing.deletedAt) {
+    trashNotice(existing.id, `registro do MAC ${macNorm}`);
+    return;
+  }
   if (existing) {
     if ((existing.kind || 'thguard') !== kind) {
       console.warn(`[MQTT] MAC ${macNorm} registrado como ${existing.id} (${existing.kind}) mas anunciou kind=${kind}. ` +
@@ -131,6 +135,7 @@ function clearRetainedConfig(mac) {
 // ── Dados e status ─────────────────────────────────────────────────
 async function handleData(sensorId, data) {
   const sensor = await ensureSensorExists(sensorId);
+  if (!sensor) return;                       // sensor na lixeira: leitura descartada
   if (sensor.kind === 'industrial') return handleIndustrialData(sensor, data);
 
   const { temperature, humidity, ts } = data;
@@ -165,7 +170,7 @@ async function handleIndustrialData(sensor, data) {
 }
 
 async function handleStatus(sensorId, data) {
-  await ensureSensorExists(sensorId);
+  if (!(await ensureSensorExists(sensorId))) return;
   await db.updateSensor(sensorId, {
     online: true, lastSeen: new Date().toISOString(),
     ip: data.ip||null, ssid: data.ssid||null,
@@ -176,8 +181,19 @@ async function handleStatus(sensorId, data) {
   broadcast({ type: 'status', sensorId, ...data });
 }
 
+// Sensor na lixeira: nao grava nada nem recria o cadastro. Avisa no log no
+// maximo uma vez por hora por sensor, para o dispositivo nao lotar o log.
+const trashWarned = {};
+function trashNotice(sensorId, what) {
+  const now = Date.now();
+  if (trashWarned[sensorId] && now - trashWarned[sensorId] < 3600e3) return;
+  trashWarned[sensorId] = now;
+  console.warn(`[MQTT] ${sensorId} esta na lixeira: ${what} ignorado. Restaure o sensor no painel de administracao para voltar a receber.`);
+}
+
 async function ensureSensorExists(sensorId) {
-  const existing = await db.getSensorById(sensorId);
+  const existing = await db.getSensorById(sensorId, { includeDeleted: true });
+  if (existing && existing.deletedAt) { trashNotice(sensorId, 'dados recebidos'); return null; }
   if (existing) return existing;
   const kind = sensorId.startsWith('ind-') ? 'industrial' : 'thguard';
   await db.createSensor({

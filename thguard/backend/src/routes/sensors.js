@@ -1,4 +1,5 @@
 const router = require('express').Router();
+const logger = require('../services/logger');
 const { auth } = require('../middleware/auth');
 const db = require('../models/db');
 const { queryHistory, queryStats } = require('../services/influx');
@@ -78,13 +79,17 @@ router.patch('/:id', auth(['admin','editor']), async (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
+// "Excluir" no painel manda o sensor para a lixeira (restaurável no painel de
+// administração por 30 dias). A exclusão definitiva é feita só pela administração.
 router.delete('/:id', auth(['admin']), async (req, res) => {
   try {
     const sensor = await db.getSensorById(req.params.id);
-    await db.deleteSensor(req.params.id);
-    if (sensor && sensor.mac) clearRetainedConfig(sensor.mac);
+    if (!sensor) return res.status(404).json({ error: 'Sensor nao encontrado' });
+    await db.trashSensor(req.params.id, { by: req.user.email, purgeHistory: false });
+    if (sensor.mac) clearRetainedConfig(sensor.mac);
     delete industrial.lastReading[req.params.id];
-    res.json({ ok: true });
+    logger.audit(req.user, 'admin', `Sensor ${sensor.id} (${sensor.name}) enviado para a lixeira`);
+    res.json({ ok: true, trashed: true });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 

@@ -1,0 +1,63 @@
+# Painel de administração. O docker compose lê este arquivo junto com o
+# docker-compose.yml automaticamente (não precisa de -f).
+#
+# - dockerproxy: dá ao backend leitura da lista de containers e dos logs, sem
+#   entregar o socket do Docker. Só GET/HEAD em /containers; qualquer comando
+#   (start, stop, exec, POST) é recusado pelo proxy. Fica numa rede interna,
+#   sem porta publicada no servidor.
+# - pasta dos backups do MariaDB montada em /backups (ajuste BACKUP_HOST_DIR no .env)
+# - limite de tamanho dos logs de todos os containers (10 MB × 5 arquivos)
+
+x-logging: &logging
+  logging:
+    driver: json-file
+    options:
+      max-size: "10m"
+      max-file: "5"
+
+services:
+  dockerproxy:
+    image: tecnativa/docker-socket-proxy:v0.5.0
+    container_name: thguard-dockerproxy
+    restart: unless-stopped
+    environment:
+      CONTAINERS: 1
+      POST: 0
+      INFO: 0
+      IMAGES: 0
+      NETWORKS: 0
+      VOLUMES: 0
+      EXEC: 0
+      LOG_LEVEL: warning
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    networks:
+      - adminproxy
+    <<: *logging
+
+  backend:
+    environment:
+      DOCKER_API: http://dockerproxy:2375
+      BACKUP_DIR: /backups
+    volumes:
+      - ./backend/data:/app/data
+      - ${BACKUP_HOST_DIR:-./mariadb/backups}:/backups
+    networks:
+      - thguard-net
+      - adminproxy
+    <<: *logging
+
+  mariadb:
+    <<: *logging
+  influxdb:
+    <<: *logging
+  mosquitto:
+    <<: *logging
+  frontend:
+    <<: *logging
+  nginx:
+    <<: *logging
+
+networks:
+  adminproxy:
+    internal: true

@@ -1,4 +1,5 @@
 const router = require('express').Router();
+const { saveReport } = require('../services/files');
 const { auth } = require('../middleware/auth');
 const db = require('../models/db');
 const { sendAlert, defaultSubject, defaultBody } = require('../services/email');
@@ -109,6 +110,8 @@ router.get('/:sensorId/report/:period', auth(), checkSensorAccess, async (req, r
       res.setHeader('Content-Type','text/csv');
       res.setHeader('Content-Disposition',
         `attachment; filename="${req.params.sensorId}_${req.params.period}.csv"`);
+      const dia = new Date(Date.now() - 3 * 3600e3).toISOString().slice(0, 10);
+      saveReport(`${req.params.sensorId}_${req.params.period}_${dia}.csv`, csv);   // guarda uma cópia (painel de administração)
       return res.send(csv);
     }
     res.json(data);

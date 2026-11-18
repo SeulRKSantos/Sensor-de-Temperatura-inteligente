@@ -137,7 +137,7 @@ export default function IndustrialDetailPage() {
   }
 
   async function removeSensor() {
-    if (!window.confirm(`Excluir ${sensor.name} (${id})? O histórico no InfluxDB é mantido, mas a configuração e os alertas são apagados.`)) return
+    if (!window.confirm(`Excluir ${sensor.name} (${id})? O sensor vai para a lixeira: some do painel e para de gravar leituras. Dá para restaurar em Administração → Sensores por 30 dias.`)) return
     try { await api.deleteSensor(id, getToken()); navigate('/industrial') }
     catch (e) { flash('Erro: ' + e.message) }
   }

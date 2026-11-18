@@ -1,4 +1,5 @@
 const nodemailer = require('nodemailer');
+const { saveReport } = require('./files');
 const db = require('../models/db');
 const { queryHistory, queryStats, queryDailyCSV, queryWeeklyCSV, queryMonthlyCSV, rowsToCSV, queryPeriodStats, countAlertsInPeriod } = require('./influx');
 
@@ -151,6 +152,7 @@ async function sendAlert(sensorId, alertType, data) {
     });
 
     console.log(`[EMAIL] ${alertType} enviado para ${sensorId} → ${to.join(', ')}`);
+    for (const a of attachments) saveReport(a.filename, a.content);   // relatórios anexados ficam guardados
 
     await db.addEmailHistory(sensorId, {
       type: alertType, to: to.join(', '), subject

@@ -1,3 +1,5 @@
+// Log do sistema: captura o console desde a primeira linha (painel de administração)
+require('./services/logger').install(require('./models/db'));
 const express = require('express');
 const cors = require('cors');
 const rateLimit = require('express-rate-limit');
@@ -12,6 +14,8 @@ const userRoutes = require('./routes/users');
 const commandRoutes = require('./routes/commands');
 const alertRoutes = require('./routes/alerts');
 const reportRoutes = require('./routes/reports');
+const adminRoutes = require('./routes/admin');
+const { startMaintenance } = require('./services/maintenance');
 
 const app = express();
 app.set('trust proxy', 1); // Nginx proxy
@@ -47,6 +51,7 @@ app.use('/api/users', userRoutes);
 app.use('/api/commands', commandRoutes);
 app.use('/api/alerts', alertRoutes);
 app.use('/api/reports', reportRoutes);
+app.use('/api/admin', adminRoutes);
 
 app.get('/api/health', (req, res) => res.json({ status: 'ok', ts: Date.now() }));
 
@@ -63,6 +68,7 @@ setupWebSocket(server);
 connectMQTT();
 startOfflineChecker();
 startScheduler();
+startMaintenance();
 
 const PORT = process.env.PORT || 3001;
 server.listen(PORT, () => console.log(`TH-GUARD backend rodando na porta ${PORT}`));

@@ -65,7 +65,7 @@ async function setUserTags(userId, tags) {
   }
 }
 async function getAllTags() {
-  const rows = await query('SELECT DISTINCT tag FROM sensors WHERE tag IS NOT NULL AND tag != \'\' ORDER BY tag');
+  const rows = await query('SELECT DISTINCT tag FROM sensors WHERE deleted_at IS NULL AND tag IS NOT NULL AND tag != \'\' ORDER BY tag');
   return rows.map(r => r.tag);
 }
 async function getUserByEmail(email) {
@@ -128,7 +128,32 @@ async function ensureSchema() {
   // Area morta (indicador Therma desligado). Substitui o antigo low_v (0,05 V),
   // que fica na tabela sem uso. Bancos existentes recebem 0,75 V.
   await query(`ALTER TABLE industrial_config ADD COLUMN IF NOT EXISTS off_v DOUBLE NOT NULL DEFAULT 0.75 AFTER fault_v`);
-  console.log('[DB] Schema verificado (sensores industriais).');
+  // Lixeira de sensores (painel de administracao)
+  await query(`ALTER TABLE sensors ADD COLUMN IF NOT EXISTS deleted_at DATETIME DEFAULT NULL`);
+  await query(`ALTER TABLE sensors ADD COLUMN IF NOT EXISTS deleted_by VARCHAR(120) DEFAULT NULL`);
+  await query(`ALTER TABLE sensors ADD COLUMN IF NOT EXISTS purge_history TINYINT(1) NOT NULL DEFAULT 0`);
+  // Log do sistema e configuracoes do painel de administracao
+  await query(`CREATE TABLE IF NOT EXISTS system_log (
+    id         BIGINT AUTO_INCREMENT PRIMARY KEY,
+    ts         DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+    level      VARCHAR(8)  NOT NULL,
+    category   VARCHAR(30) NOT NULL,
+    message    VARCHAR(2000) NOT NULL,
+    user_email VARCHAR(120) DEFAULT NULL,
+    INDEX idx_ts (ts), INDEX idx_level (level), INDEX idx_category (category)
+  )`);
+  await query(`CREATE TABLE IF NOT EXISTS admin_settings (
+    name  VARCHAR(50) PRIMARY KEY,
+    value VARCHAR(200) NOT NULL
+  )`);
+  await query(`ALTER TABLE email_history ADD INDEX IF NOT EXISTS idx_email_ts (ts)`);
+  // IDs de sensores excluidos definitivamente: nunca sao reaproveitados, senao um
+  // sensor novo herdaria o historico de leituras do antigo no InfluxDB
+  await query(`CREATE TABLE IF NOT EXISTS retired_sensor_ids (
+    id         VARCHAR(50) PRIMARY KEY,
+    retired_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+  )`);
+  console.log('[DB] Schema verificado (sensores industriais, lixeira e administracao).');
 }
 let schemaReady = null;
 function schema() {
@@ -151,12 +176,14 @@ const IND_MAP = {
 const SENSOR_SELECT = `SELECT s.id,s.mac,s.kind,s.model,s.fw,s.name,s.location,s.tag,s.online,
     s.last_seen as lastSeen,s.ip,s.ssid,s.temp_limit as tempLimit,s.humid_limit as humidLimit,
     s.alert_active as alertActive,s.created_at as createdAt,
+    s.deleted_at as deletedAt,s.deleted_by as deletedBy,s.purge_history as purgeHistory,
     ic.range_min,ic.range_max,ic.v_full,ic.divisor,ic.offset_mv,ic.gain,ic.offset_temp,
     ic.fault_v,ic.off_v,ic.interval_s
   FROM sensors s LEFT JOIN industrial_config ic ON ic.sensor_id = s.id`;
 
 function mapSensor(r) {
   const s = {
+    ...(r.deletedAt ? { deletedAt: r.deletedAt, deletedBy: r.deletedBy, purgeHistory: !!r.purgeHistory } : {}),
     id:r.id, mac:r.mac, kind:r.kind || 'thguard', model:r.model, fw:r.fw,
     name:r.name, location:r.location, tag:r.tag, online:!!r.online, lastSeen:r.lastSeen,
     ip:r.ip, ssid:r.ssid, tempLimit:r.tempLimit, humidLimit:r.humidLimit,
@@ -173,22 +200,40 @@ function mapSensor(r) {
   return s;
 }
 
+// Sensores na lixeira (deleted_at preenchido) ficam fora de todas as consultas
+// normais; so o painel de administracao os ve (includeDeleted / getTrashedSensors).
 async function getSensors(kind) {
   await schema();
   const rows = kind
-    ? await query(SENSOR_SELECT + ' WHERE s.kind=? ORDER BY s.id', [kind])
-    : await query(SENSOR_SELECT + ' ORDER BY s.id');
+    ? await query(SENSOR_SELECT + ' WHERE s.deleted_at IS NULL AND s.kind=? ORDER BY s.id', [kind])
+    : await query(SENSOR_SELECT + ' WHERE s.deleted_at IS NULL ORDER BY s.id');
   return rows.map(mapSensor);
 }
-async function getSensorById(id) {
+async function getSensorById(id, { includeDeleted = false } = {}) {
   await schema();
-  const rows = await query(SENSOR_SELECT + ' WHERE s.id=?', [id]);
+  const rows = await query(SENSOR_SELECT + ' WHERE s.id=?' + (includeDeleted ? '' : ' AND s.deleted_at IS NULL'), [id]);
   return rows[0] ? mapSensor(rows[0]) : null;
 }
 async function getSensorByMac(mac) {
   await schema();
-  const rows = await query('SELECT id, kind FROM sensors WHERE mac=?', [mac]);
+  const rows = await query('SELECT id, kind, deleted_at as deletedAt FROM sensors WHERE mac=?', [mac]);
   return rows[0] || null;
+}
+async function getTrashedSensors() {
+  await schema();
+  const rows = await query(SENSOR_SELECT + ' WHERE s.deleted_at IS NOT NULL ORDER BY s.deleted_at DESC');
+  return rows.map(mapSensor);
+}
+async function trashSensor(id, { by, purgeHistory }) {
+  await query('UPDATE sensors SET deleted_at=NOW(), deleted_by=?, purge_history=?, online=0, alert_active=0 WHERE id=? AND deleted_at IS NULL',
+    [by || null, purgeHistory ? 1 : 0, id]);
+}
+async function restoreSensor(id) {
+  await query('UPDATE sensors SET deleted_at=NULL, deleted_by=NULL, purge_history=0 WHERE id=?', [id]);
+}
+async function getExpiredTrash(days) {
+  const rows = await query('SELECT id, mac, purge_history as purgeHistory FROM sensors WHERE deleted_at IS NOT NULL AND deleted_at < NOW() - INTERVAL ? DAY', [days]);
+  return rows.map(r => ({ ...r, purgeHistory: !!r.purgeHistory }));
 }
 async function createSensor({ id, mac, name, location, tempLimit, humidLimit, kind, model, fw }) {
   await schema();
@@ -228,13 +273,15 @@ async function updateSensor(id, fields) {
   await query('UPDATE sensors SET '+sets.join(',')+'  WHERE id=?', vals);
 }
 async function deleteSensor(id) {
+  await query('INSERT IGNORE INTO retired_sensor_ids (id) VALUES (?)', [id]);
   await query('DELETE FROM sensors WHERE id=?', [id]);
 }
 // Proximo ID com o prefixo do tipo: sensor-NNN (TH-GUARD) ou ind-NNN (industrial).
 // Usa o maior numero + 1, para nao preencher "buracos" deixados por sensores
 // apagados (o historico deles continua no InfluxDB e se misturaria com o novo).
 async function getNextSensorId(prefix = 'sensor') {
-  const rows = await query('SELECT id FROM sensors WHERE id LIKE ?', [prefix + '-%']);
+  await schema();
+  const rows = await query('SELECT id FROM sensors WHERE id LIKE ? UNION SELECT id FROM retired_sensor_ids WHERE id LIKE ?', [prefix + '-%', prefix + '-%']);
   let max = 0;
   for (const r of rows) {
     const n = parseInt(r.id.slice(prefix.length + 1), 10);
@@ -274,6 +321,22 @@ async function getEmailHistory(sensorId) {
     WHERE sensor_id=? ORDER BY ts DESC LIMIT 50`, [sensorId]);
 }
 
+// CONFIGURACOES DO PAINEL DE ADMINISTRACAO
+const SETTINGS_DEFAULTS = { log_retention_days: '90', email_retention_days: '365', report_retention_days: '0', trash_days: '30' };
+async function getSettings() {
+  await schema();
+  const rows = await query('SELECT name, value FROM admin_settings');
+  const out = { ...SETTINGS_DEFAULTS };
+  rows.forEach(r => { if (r.name in out) out[r.name] = r.value; });
+  return Object.fromEntries(Object.entries(out).map(([k, v]) => [k, Number(v)]));
+}
+async function saveSettings(fields) {
+  for (const [k, v] of Object.entries(fields)) {
+    if (!(k in SETTINGS_DEFAULTS)) continue;
+    await query('INSERT INTO admin_settings (name, value) VALUES (?,?) ON DUPLICATE KEY UPDATE value=VALUES(value)', [k, String(v)]);
+  }
+}
+
 // SMTP
 async function getSmtp() {
   const rows = await query('SELECT * FROM smtp_config WHERE id=1');
@@ -291,6 +354,8 @@ module.exports = {
   getUsers, getUserByEmail, getUserById, createUser, updateUser, deleteUser,
   getSensors, getSensorById, getSensorByMac, createSensor, updateSensor,
   deleteSensor, getNextSensorId, schema,
+  getTrashedSensors, trashSensor, restoreSensor, getExpiredTrash,
+  getSettings, saveSettings, SETTINGS_DEFAULTS,
   ensureIndustrialConfig, updateIndustrialConfig,
   getSensorAlerts, saveSensorAlerts,
   addEmailHistory, getEmailHistory,

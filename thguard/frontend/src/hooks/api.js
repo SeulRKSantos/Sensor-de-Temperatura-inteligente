@@ -80,3 +80,27 @@ export const api = {
   downloadIndustrialDay: (date, sensor, t) =>
     reqRaw('GET', `/reports/industrial/daily.xlsx?date=${date}&sensor=${encodeURIComponent(sensor)}`, t),
 }
+
+// Painel de administração (só admin). Exclusões levam confirm: 'EXCLUIR'.
+const qs = (o) => Object.entries(o).filter(([, v]) => v !== undefined && v !== null && v !== '').map(([k, v]) => `${k}=${encodeURIComponent(v)}`).join('&')
+export const admin = {
+  overview:         (t) => req('GET', '/admin/overview', null, t),
+  sensors:          (t) => req('GET', '/admin/sensors', null, t),
+  trash:            (id, purgeHistory, t) => req('POST', `/admin/sensors/${id}/trash`, { purgeHistory }, t),
+  restore:          (id, t) => req('POST', `/admin/sensors/${id}/restore`, {}, t),
+  purge:            (id, history, t) => req('DELETE', `/admin/sensors/${id}`, { confirm: 'EXCLUIR', history }, t),
+  dataPreview:      (body, t) => req('POST', '/admin/data/preview', body, t),
+  dataDelete:       (body, t) => req('POST', '/admin/data/delete', { ...body, confirm: 'EXCLUIR' }, t),
+  files:            (kind, t) => req('GET', `/admin/files/${kind}`, null, t),
+  fileDownload:     (kind, path, t) => reqRaw('GET', `/admin/files/${kind}/download?${qs({ path })}`, t),
+  filesDelete:      (kind, paths, t) => req('DELETE', `/admin/files/${kind}`, { confirm: 'EXCLUIR', paths }, t),
+  filesCleanup:     (kind, olderThanDays, t) => req('POST', `/admin/files/${kind}/cleanup`, { confirm: 'EXCLUIR', olderThanDays }, t),
+  logsSystem:       (params, t) => req('GET', `/admin/logs/system?${qs(params)}`, null, t),
+  logsSystemCleanup:(olderThanDays, t) => req('POST', '/admin/logs/system/cleanup', { confirm: 'EXCLUIR', olderThanDays }, t),
+  logsEmail:        (params, t) => req('GET', `/admin/logs/email?${qs(params)}`, null, t),
+  logsEmailCleanup: (olderThanDays, t) => req('POST', '/admin/logs/email/cleanup', { confirm: 'EXCLUIR', olderThanDays }, t),
+  containers:       (t) => req('GET', '/admin/logs/containers', null, t),
+  containerLogs:    (name, tail, t) => req('GET', `/admin/logs/containers/${encodeURIComponent(name)}?${qs({ tail })}`, null, t),
+  settings:         (t) => req('GET', '/admin/settings', null, t),
+  saveSettings:     (body, t) => req('PUT', '/admin/settings', body, t),
+}

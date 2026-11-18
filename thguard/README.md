@@ -37,6 +37,9 @@ graph LR
 - Relatórios diário/semanal/mensal com CSV anexo
 - Relatórios mensais dos sensores industriais: calendário do mês e, por dia, um Excel com a
   temperatura minuto a minuto e o gráfico do dia
+- Painel de administração (só admin): espaço ocupado, métricas dos sensores, lixeira de sensores,
+  exclusão de leituras antigas, relatórios e backups guardados, log do sistema, e-mails e logs dos
+  containers (veja [docs/ADMINISTRACAO.md](docs/ADMINISTRACAO.md))
 - Controle de acesso por roles (admin, editor, viewer) e por grupo (tag) de sensores
 - Sensores industriais (VA01, PT100 0–10 V) em seção própria do painel, com calibração
   editável (faixa / temperatura de relação, offsets, limiares de falha) e área morta para o

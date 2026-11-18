@@ -3,13 +3,17 @@ const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const db = require('../models/db');
 const { auth } = require('../middleware/auth');
+const logger = require('../services/logger');
 
 router.post('/login', async (req, res) => {
   try {
     const { email, password } = req.body;
     const user = await db.getUserByEmail(email);
-    if (!user || !bcrypt.compareSync(password, user.password))
+    if (!user || !bcrypt.compareSync(password, user.password)) {
+      logger.audit(String(email || '').slice(0, 120) || null, 'auth', `Login recusado (IP ${req.ip})`, 'warn');
       return res.status(401).json({ error: 'Email ou senha invalidos' });
+    }
+    logger.audit(user.email, 'auth', `Login (IP ${req.ip})`);
     const token = jwt.sign(
       { id: user.id, name: user.name, email: user.email, role: user.role, tags: user.tags || [] },
       process.env.JWT_SECRET, { expiresIn: '8h' }

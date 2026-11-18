@@ -4,6 +4,7 @@ import LoginPage from './pages/LoginPage'
 import DashboardPage from './pages/DashboardPage'
 import SensorDetailPage from './pages/SensorDetailPage'
 import UsersPage from './pages/UsersPage'
+import AdminPage from './pages/AdminPage'
 import AlertsPage from './pages/AlertsPage'
 import ReportsPage from './pages/ReportsPage'
 import Layout from './components/Layout'
@@ -39,6 +40,7 @@ export default function App() {
             <Route path="industrial/alerts" element={<ProtectedRole roles={['admin','editor']}><AlertsPage key="industrial" kind="industrial" /></ProtectedRole>} />
             <Route path="industrial/reports" element={<ProtectedRole roles={['admin','editor']}><ReportsPage key="industrial" kind="industrial" /></ProtectedRole>} />
             <Route path="users" element={<ProtectedRole roles={['admin']}><UsersPage /></ProtectedRole>} />
+            <Route path="admin" element={<ProtectedRole roles={['admin']}><AdminPage /></ProtectedRole>} />
           </Route>
         </Routes>
       </BrowserRouter>

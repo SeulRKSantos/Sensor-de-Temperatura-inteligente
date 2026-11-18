@@ -3,6 +3,7 @@ const router = require('express').Router();
 const { auth } = require('../middleware/auth');
 const db = require('../models/db');
 const rep = require('../services/industrialReport');
+const { saveReport } = require('../services/files');
 
 // Mesmo critério de acesso do resto da API: admin vê tudo; os demais, os sensores das suas tags
 function hasAccess(user, sensor) {
@@ -51,6 +52,7 @@ router.get('/industrial/daily.xlsx', auth(['admin', 'editor']), async (req, res)
       sensors: sensors.map((s) => ({ id: s.id, name: s.name || s.id, location: s.location, tempLimit: s.tempLimit ?? null })),
     });
     const who = sensors.length === 1 ? sensors[0].id : 'todos';
+    saveReport(`industrial_${who}_${day}.xlsx`, buf);       // guarda uma cópia (painel de administração)
     res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
     res.setHeader('Content-Disposition', `attachment; filename="industrial_${who}_${day}.xlsx"`);
     res.setHeader('Cache-Control', 'no-store');
