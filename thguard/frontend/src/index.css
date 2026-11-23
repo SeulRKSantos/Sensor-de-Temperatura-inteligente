@@ -153,3 +153,8 @@ body {
 .adm-dialog-body { font-size: 13px; line-height: 1.55; color: var(--text); }
 .adm-dialog-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 18px; }
 @media (max-width: 640px) { .adm-grid { grid-template-columns: 1fr; } .adm-big { font-size: 19px; } }
+
+.adm-disk { padding: 8px 0 10px; border-bottom: 1px solid var(--border); }
+.adm-disk:last-child { border-bottom: 0; padding-bottom: 0; }
+.adm-disk-h { display: flex; justify-content: space-between; gap: 12px; flex-wrap: wrap; font-size: 13px; }
+.adm-disk-h .mono { color: var(--muted); font-size: 12px; }

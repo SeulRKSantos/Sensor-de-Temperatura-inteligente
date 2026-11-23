@@ -1,6 +1,6 @@
 // Arquivos gerenciados pelo painel de administração:
 //   reports  → relatórios gerados pelo TH-GUARD (anexos de e-mail, CSV e .xlsx baixados),
-//              guardados em data/relatorios/AAAA-MM/ (volume ./backend/data do compose)
+//              guardados em AAAA-MM/ dentro de REPORTS_DIR (padrão: data/relatorios)
 //   backups  → backups do MariaDB, montados em /backups (BACKUP_DIR)
 // Nenhum caminho vindo da API sai da pasta da categoria.
 const fs = require('fs');
@@ -9,7 +9,7 @@ const path = require('path');
 
 const DATA_DIR = process.env.DATA_DIR || path.join(__dirname, '../../data');
 const ROOTS = {
-  reports: () => path.join(DATA_DIR, 'relatorios'),
+  reports: () => process.env.REPORTS_DIR || path.join(DATA_DIR, 'relatorios'),
   backups: () => process.env.BACKUP_DIR || '/backups',
 };
 // Só estes tipos podem ser apagados em backups: protege contra montar a pasta errada
@@ -103,12 +103,46 @@ async function saveReport(filename, content) {
   }
 }
 
-// Espaço do disco onde ficam os dados do TH-GUARD
-function disk(dir = DATA_DIR) {
+// Espaço de um disco (do sistema de arquivos onde está o caminho)
+function statDisk(p) {
   try {
-    const s = fs.statfsSync(fs.existsSync(dir) ? dir : '/');
-    return { total: s.blocks * s.bsize, free: s.bavail * s.bsize, used: (s.blocks - s.bfree) * s.bsize };
+    const s = fs.statfsSync(p);
+    return { total: s.blocks * s.bsize, free: s.bavail * s.bsize, used: (s.blocks - s.bfree) * s.bsize, dev: fs.statSync(p).dev };
   } catch { return null; }
 }
+function disk(dir = DATA_DIR) {
+  const d = statDisk(fs.existsSync(dir) ? dir : '/');
+  if (!d) return null;
+  const { dev, ...rest } = d;
+  return rest;
+}
 
-module.exports = { list, remove, cleanup, saveReport, resolveInside, disk, root, DATA_DIR };
+// Discos mostrados no painel. ADMIN_DISKS = "Nome=/caminho;Nome=/caminho" (caminhos
+// dentro do container; para um disco que o backend não usa, monte uma pasta vazia
+// dele só para leitura). Discos repetidos (mesmo dispositivo) aparecem uma vez, e
+// cada um diz o que do TH-GUARD está nele.
+function disks() {
+  const conf = (process.env.ADMIN_DISKS || '').split(';').map((x) => x.trim()).filter(Boolean)
+    .map((x) => { const i = x.indexOf('='); return i > 0 ? { name: x.slice(0, i).trim(), path: x.slice(i + 1).trim() } : null; })
+    .filter(Boolean);
+  const uses = [['Dados do backend', DATA_DIR], ['Relatórios', root('reports')], ['Backups', root('backups')]]
+    .map(([label, p]) => ({ label, st: fs.existsSync(p) ? statDisk(p) : null })).filter((u) => u.st);
+  const list = conf.length ? conf : [{ name: 'Disco do servidor', path: DATA_DIR }];
+  // usos em discos que não estão na lista entram com o nome do uso
+  for (const u of uses) {
+    const listed = list.some((d) => { const st = fs.existsSync(d.path) && statDisk(d.path); return st && st.dev === u.st.dev; });
+    if (!listed) list.push({ name: u.label, path: u.label === 'Backups' ? root('backups') : u.label === 'Relatórios' ? root('reports') : DATA_DIR });
+  }
+  const out = [], seen = new Set();
+  for (const d of list) {
+    const st = fs.existsSync(d.path) ? statDisk(d.path) : null;
+    if (!st) { out.push({ name: d.name, path: d.path, error: 'caminho nao montado no backend' }); continue; }
+    if (seen.has(st.dev)) continue;
+    seen.add(st.dev);
+    out.push({ name: d.name, path: d.path, total: st.total, free: st.free, used: st.used,
+      holds: uses.filter((u) => u.st.dev === st.dev).map((u) => u.label) });
+  }
+  return out;
+}
+
+module.exports = { list, remove, cleanup, saveReport, resolveInside, disk, disks, root, DATA_DIR };

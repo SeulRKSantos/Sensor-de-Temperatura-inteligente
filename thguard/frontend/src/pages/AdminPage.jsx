@@ -108,12 +108,20 @@ function Geral({ t, irPara }) {
           Para guardar por mais tempo, aumente a retenção do bucket <code>{d.influx.name}</code> no servidor (veja a aba Retenção).
         </div>
       )}
-      <Card title="Disco do servidor" icon={HardDrive}>
-        {disco ? <>
-          <div className="adm-big">{fmtBytes(disco.free)} <small>livres de {fmtBytes(disco.total)}</small></div>
-          <Bar used={disco.used} total={disco.total} />
-          <div className="adm-muted">{Math.round((disco.used / disco.total) * 100)}% em uso · TH-GUARD ocupa {fmtBytes(totalDados)}</div>
-        </> : <div className="adm-muted">Indisponível</div>}
+      <Card title="Discos" icon={HardDrive} style={{ gridColumn: '1 / -1' }}
+        right={<span className="adm-muted">TH-GUARD ocupa {fmtBytes(totalDados)}</span>}>
+        {(d.disks?.length ? d.disks : disco ? [{ name: 'Disco do servidor', ...disco, holds: [] }] : []).map((k) => (
+          <div key={k.name + k.path} className="adm-disk">
+            <div className="adm-disk-h">
+              <b>{k.name}</b>
+              {k.error ? <span className="adm-err">{k.error}</span>
+                : <span className="mono">{fmtBytes(k.free)} livres de {fmtBytes(k.total)} · {Math.round((k.used / k.total) * 100)}%</span>}
+            </div>
+            {!k.error && <Bar used={k.used} total={k.total} />}
+            {k.holds?.length > 0 && <div className="adm-sub">Guarda: {k.holds.join(', ')}</div>}
+          </div>
+        ))}
+        {!d.disks?.length && !disco && <div className="adm-muted">Indisponível</div>}
       </Card>
       <Card title="InfluxDB (leituras)" icon={Activity}>
         {d.influx.error ? <div className="adm-err">{d.influx.error}</div> : <>

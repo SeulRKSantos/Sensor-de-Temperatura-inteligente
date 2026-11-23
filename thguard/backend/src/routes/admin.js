@@ -42,6 +42,7 @@ router.get('/overview', wrap(async (req, res) => {
   const sum = (rows) => rows.reduce((a, r) => a + Number(r.n), 0);
   res.json({
     disk: files.disk(),
+    disks: files.disks(),
     mariadb: tables.ok ? { bytes: tables.value.reduce((a, t) => a + Number(t.bytes || 0), 0), tables: tables.value.map((t) => ({ name: t.name, rows: Number(t.rows || 0), bytes: Number(t.bytes || 0) })) } : { error: tables.error },
     influx: bucket.ok ? { ...(bucket.value || {}), bytes: influxBytes } : { error: bucket.error },
     files: {

@@ -45,7 +45,10 @@ O `docker-compose.override.yml` é lido automaticamente junto com o `docker-comp
 - limite de 10 MB × 5 arquivos para os logs de todos os containers.
 
 Variáveis do backend: `DOCKER_API` (vazio desliga a aba Containers), `DOCKER_LOG_PREFIXES`
-(padrão `thguard-`), `BACKUP_DIR`, `DATA_DIR`.
+(padrão `thguard-`), `BACKUP_DIR`, `REPORTS_DIR` (padrão `data/relatorios`), `DATA_DIR` e
+`ADMIN_DISKS`: discos mostrados na Visão geral, no formato `Nome=/caminho;Nome=/caminho` (caminhos
+dentro do container). Para medir um disco que o backend não usa, monte uma pasta vazia dele só
+para leitura; o painel lê apenas o tamanho do disco.
 
 A retenção das leituras é do próprio InfluxDB (o bucket foi criado com 30 dias). Para mudar:
 
