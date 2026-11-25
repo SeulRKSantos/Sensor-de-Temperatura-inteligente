@@ -43,7 +43,7 @@ Testes: `backend/test/industrial.test.js`.
 Mesmo fluxo de registro por MAC dos sensores DHT, com `"kind":"industrial"`:
 
 ```
--> thguard/register        {"mac":"B4E62D...","kind":"industrial","model":"VA01","fw":"va01-1.0.0"}
+-> thguard/register        {"mac":"B4E62D...","kind":"industrial","model":"VA01","fw":"va01-1.1.0"}
 <- thguard/<MAC>/config    {"sensor_id":"ind-001","interval":5}            (retained)
 -> thguard/ind-001/data    {"mv":412.3,"spread":2.1,"n":5,"ts":123456}
 -> thguard/ind-001/status  {"ip","ssid","rssi","uptime","mac","kind","model","fw","interval"}

@@ -17,8 +17,8 @@
 //    -> thguard/<id>/status         {"ip","ssid","rssi","uptime","mac","kind","fw","interval"}
 //    <- thguard/<id>/cmd            restart | reset_id | set_config | identify | read_now
 //
-//  Sem display e sem LEDs externos. Sinalizacao pelo LED azul da placa
-//  (GPIO2, se existir) e pelo Serial (115200).
+//  Sinalizacao: LED verde (GPIO25) e LED vermelho (GPIO26), tabela abaixo,
+//  alem do LED azul da placa (GPIO2) e do Serial (115200).
 //
 //  Bibliotecas: PubSubClient (Nick O'Leary), ArduinoJson (v7).
 //  Core: esp32 by Espressif 2.x ou 3.x.
@@ -33,7 +33,7 @@
 #include <esp_task_wdt.h>
 #include "secrets.h"
 
-#define FW_VERSION "va01-1.0.0"
+#define FW_VERSION "va01-1.1.0"
 #define MODEL      "VA01"
 
 // ══════════════════════════════════════════
@@ -43,6 +43,25 @@
 #define PIN_BOOT       0    // botao BOOT da placa: segurar 6 s = apagar config
 #define PIN_LED        2    // LED azul onboard (DevKit V1). -1 se a placa nao tiver.
 #define LED_ATIVO_ALTO 1
+#define PIN_LED_VERDE    25 // GPIO25 -> 330 ohm -> LED verde -> GND. -1 = sem LED
+#define PIN_LED_VERMELHO 26 // GPIO26 -> 330 ohm -> LED vermelho -> GND. -1 = sem LED
+
+// Limites de leitura vistos pelo ESP (mV no PINO, ja com o offset de -16 mV do ADC).
+// A conversao para graus continua no servidor; estes limites so acendem os LEDs.
+#define FALHA_LEITURA_MV 2116  // 10,5 V no transmissor (/5 +16): upscale = PT100 aberto
+#define SATURADO_MV      2900  // perto do maximo do ADC: sinal fora da faixa
+#define THERMA_OFF_MV    166   // 0,75 V no transmissor: indicador Therma desligado
+#define THERMA_ON_MV     176   // volta a "ligado" acima de 0,80 V (histerese, igual ao painel)
+#define LEITURAS_FALHA   3     // leituras seguidas (1/s) para entrar ou sair da falha
+#define ID_TIMEOUT_MS    60000UL // conectado ao broker e sem ID por 60 s = falha do servidor
+#define TESTE_LEDS_MS    2000UL  // "ligando": os dois LEDs acesos ao ligar
+
+// Estados dos LEDs (declarados aqui em cima por causa dos prototipos gerados pelo Arduino)
+enum EstadoLed { L_LIGANDO, L_IDENTIFICAR, L_CONFIG, L_FALHA_WIFI, L_FALHA_SERVIDOR,
+                 L_FALHA_LEITURA, L_INICIANDO, L_THERMA_OFF, L_NORMAL };
+const char* NOME_ESTADO[] = { "ligando", "identificar", "modo de configuracao", "falha no Wi-Fi",
+  "falha com o servidor", "falha de leitura", "iniciando", "Therma desligado", "operando" };
+
 
 // ══════════════════════════════════════════
 //  AMOSTRAGEM (igual ao VA01_teste_leitura validado)
@@ -100,8 +119,16 @@ unsigned long t_leitura = 0, t_envio = 0, t_status = 0;
 unsigned long t_register = 0, t_mqttRetry = 0, t_wifiRetry = 0;
 unsigned long identifyAte = 0;
 
+// Diagnostico usado pelos LEDs
+bool   jaConectouWifi = false, wifiFalhou = false;
+bool   jaConectouMqtt = false, mqttFalhou = false;
+unsigned long t_mqttOk = 0;          // quando o broker conectou (para o timeout do ID)
+bool   testeLeds = true;                // "ligando" ate o fim do teste dos LEDs no setup
+bool   falhaLeitura = false, thermaOff = false;
+int    contFalha = 0, contOk = 0;
+
 // ══════════════════════════════════════════
-//  LED onboard (unica sinalizacao fisica)
+//  LED azul da placa (sinalizacao original, mantida)
 //   portal (sem rede) .......... pisca lento (1 s)
 //   Wi-Fi ok, sem MQTT ......... 2 piscadas curtas a cada 2 s
 //   aguardando ID do servidor .. pisca rapido (150 ms)
@@ -122,6 +149,78 @@ void tickLED() {
   if (!mqtt.connected()) { unsigned long f = m % 2000; led(f < 80 || (f > 240 && f < 320)); return; }
   if (!registrado) { led((m / 150) % 2); return; }
   led(m - t_envio < 40);
+}
+
+// ══════════════════════════════════════════
+//  LEDS VERDE E VERMELHO
+//  Uma indicacao por vez; vale a de maior prioridade (de cima para baixo).
+//  Ciclo de 3 s: piscada curta = 150 ms aceso / 150 ms apagado.
+//
+//   Estado                        Verde                    Vermelho
+//   ligando (2 s)                 aceso                    aceso
+//   identificar (painel, 15 s)    pisca muito rapido       apagado
+//   modo de configuracao          piscada longa, alternando com o vermelho
+//   falha no Wi-Fi                apagado                  2 piscadas curtas
+//   falha com o servidor (MQTT)   apagado                  3 piscadas curtas
+//   falha de leitura              apagado                  piscada longa (1 s)
+//   iniciando                     piscada longa (1 s)      apagado
+//   Therma desligado              1 piscada curta / 3 s    apagado
+//   operando normal               aceso fixo               apagado
+//   apagando a config (BOOT 6 s)  pisca rapido junto com o vermelho
+// ══════════════════════════════════════════
+void ledsRG(bool verde, bool vermelho) {
+  if (PIN_LED_VERDE    >= 0) digitalWrite(PIN_LED_VERDE,    verde    ? HIGH : LOW);
+  if (PIN_LED_VERMELHO >= 0) digitalWrite(PIN_LED_VERMELHO, vermelho ? HIGH : LOW);
+}
+
+bool piscadas(unsigned long m, int n) {        // n piscadas curtas a cada 3 s
+  unsigned long f = m % 3000UL;
+  return f < (unsigned long)n * 300UL && (f % 300UL) < 150UL;
+}
+
+EstadoLed estadoAtual() {
+  unsigned long m = millis();
+  bool wifiOk = WiFi.status() == WL_CONNECTED;
+  if (testeLeds) return L_LIGANDO;
+  if (identifyAte && m < identifyAte) return L_IDENTIFICAR;
+  if (modoPortal && !wifiOk && (cfg_ssid1.length() == 0 || WiFi.softAPgetStationNum() > 0)) return L_CONFIG;
+  if (!wifiOk) return (wifiFalhou || jaConectouWifi) ? L_FALHA_WIFI : L_INICIANDO;
+  if (!mqtt.connected()) return (mqttFalhou || jaConectouMqtt) ? L_FALHA_SERVIDOR : L_INICIANDO;
+  if (!registrado && m - t_mqttOk > ID_TIMEOUT_MS) return L_FALHA_SERVIDOR;
+  if (falhaLeitura) return L_FALHA_LEITURA;
+  if (!registrado) return L_INICIANDO;
+  if (thermaOff) return L_THERMA_OFF;
+  return L_NORMAL;
+}
+
+void tickLeds() {
+  static int anterior = -1;
+  unsigned long m = millis();
+  EstadoLed e = estadoAtual();
+  if ((int)e != anterior) { Serial.printf("[LED] %s\n", NOME_ESTADO[e]); anterior = e; }
+  bool longa = (m / 1000UL) % 2 == 0;
+  switch (e) {
+    case L_LIGANDO:        ledsRG(true, true); break;
+    case L_IDENTIFICAR:    ledsRG((m / 60UL) % 2, false); break;
+    case L_CONFIG:         ledsRG(longa, !longa); break;
+    case L_FALHA_WIFI:     ledsRG(false, piscadas(m, 2)); break;
+    case L_FALHA_SERVIDOR: ledsRG(false, piscadas(m, 3)); break;
+    case L_FALHA_LEITURA:  ledsRG(false, longa); break;
+    case L_INICIANDO:      ledsRG(longa, false); break;
+    case L_THERMA_OFF:     ledsRG(piscadas(m, 1), false); break;
+    default:               ledsRG(true, false); break;
+  }
+}
+
+// Falha e Therma desligado so mudam depois de LEITURAS_FALHA leituras seguidas
+void avaliarLeitura(float mv) {
+  bool ruim = isnan(mv) || mv >= FALHA_LEITURA_MV || mv >= SATURADO_MV;
+  if (ruim) { contOk = 0; if (++contFalha >= LEITURAS_FALHA && !falhaLeitura) { falhaLeitura = true; Serial.printf("[ADC] Falha de leitura: %.1f mV no pino\n", mv); } }
+  else      { contFalha = 0; if (++contOk >= LEITURAS_FALHA && falhaLeitura) { falhaLeitura = false; Serial.println("[ADC] Leitura normalizada"); } }
+  if (!isnan(mv)) {
+    if (!thermaOff && mv < THERMA_OFF_MV) thermaOff = true;
+    else if (thermaOff && mv > THERMA_ON_MV) thermaOff = false;
+  }
 }
 
 // ══════════════════════════════════════════
@@ -195,6 +294,7 @@ void tickLeitura() {
   float sp = 0;
   float mv = lerPinoMv(&sp);
   ultimoMv = mv; ultimoSpread = sp;
+  avaliarLeitura(mv);
   if (nJanela < MAX_LEITURAS_JAN) { somaMv += mv; somaSpread += sp; nJanela++; }
 }
 
@@ -216,7 +316,7 @@ bool tentarRede(const String& ssid, const String& pass) {
   WiFi.begin(ssid.c_str(), pass.c_str());
   unsigned long ini = millis();
   while (WiFi.status() != WL_CONNECTED && millis() - ini < 15000) {
-    delay(250); Serial.print("."); esp_task_wdt_reset();
+    delay(250); Serial.print("."); esp_task_wdt_reset(); tickLeds();
   }
   Serial.println();
   return WiFi.status() == WL_CONNECTED;
@@ -247,9 +347,11 @@ void conectarWifi() {
   if (tentarRede(cfg_ssid1, cfg_pass1) || tentarRede(cfg_ssid2, cfg_pass2)) {
     Serial.printf("[WIFI] OK  IP=%s  RSSI=%d  GW=%s\n",
       WiFi.localIP().toString().c_str(), WiFi.RSSI(), WiFi.gatewayIP().toString().c_str());
+    jaConectouWifi = true; wifiFalhou = false;
     fecharPortal();
   } else {
     Serial.println("[WIFI] Falhou. Abrindo portal e tentando de novo a cada 60 s.");
+    wifiFalhou = true;
     abrirPortal();
   }
 }
@@ -257,7 +359,7 @@ void conectarWifi() {
 // Em campo, apos queda de energia o roteador pode subir depois do ESP.
 // Por isso o portal nao e um estado final: a rede salva continua sendo tentada.
 void tickWifi() {
-  if (WiFi.status() == WL_CONNECTED) { if (modoPortal) fecharPortal(); return; }
+  if (WiFi.status() == WL_CONNECTED) { jaConectouWifi = true; wifiFalhou = false; if (modoPortal) fecharPortal(); return; }
   if (cfg_ssid1.length() == 0) return;
   if (millis() - t_wifiRetry < WIFI_RETRY_MS) return;
   t_wifiRetry = millis();
@@ -367,7 +469,7 @@ void mqttCallback(char* topic, byte* payload, unsigned int len) {
       mqtt.disconnect(); delay(300); ESP.restart();
     }
     if (cmd("identify")) {
-      Serial.println("[CMD] identify: LED piscando por 15 s");
+      Serial.println("[CMD] identify: LED verde piscando por 15 s");
       identifyAte = millis() + 15000;
     }
     if (cmd("read_now")) {
@@ -412,9 +514,11 @@ void conectarMQTT() {
   if (!mqtt.connect(cid.c_str(), MQTT_USER, MQTT_PASS)) {
     Serial.printf("falha rc=%d%s\n", mqtt.state(),
       mqtt.state() == 4 || mqtt.state() == 5 ? " (usuario/senha MQTT - confira secrets.h)" : "");
+    mqttFalhou = true;
     return;
   }
   Serial.println("OK");
+  jaConectouMqtt = true; mqttFalhou = false; t_mqttOk = millis();
   TOPIC_CONFIG = "thguard/" + macAddr + "/config";
   mqtt.subscribe(TOPIC_CONFIG.c_str());
   if (registrado) {
@@ -473,6 +577,7 @@ color:#fff;border:0;border-radius:5px;font-size:15px}
 <div class="row"><span>Wi-Fi</span><span class="%WC%">%WS%</span></div>
 <div class="row"><span>MQTT</span><span class="%MC%">%MS%</span></div>
 <div class="row"><span>Intervalo de envio</span><span>%INT% s</span></div>
+<div class="row"><span>Indicacao dos LEDs</span><span>%LED%</span></div>
 </div>
 <form class="box" method="POST" action="/salvar">
 <label>Rede Wi-Fi principal</label><input name="s1" value="%S1%">
@@ -519,6 +624,7 @@ void handleRoot() {
   p.replace("%MC%",  mqtt.connected() ? "ok" : "err");
   p.replace("%MS%",  mqtt.connected() ? "conectado" : "desconectado");
   p.replace("%INT%", String(intervaloS));
+  p.replace("%LED%", NOME_ESTADO[estadoAtual()]);
   p.replace("%S1%",  escHtml(cfg_ssid1));
   p.replace("%S2%",  escHtml(cfg_ssid2));
   p.replace("%SV%",  escHtml(cfg_server));
@@ -565,7 +671,7 @@ void tickBotao() {
     if (!t0) t0 = millis();
     if (millis() - t0 > 6000) {
       Serial.println("[BTN] Reset de fabrica.");
-      for (int i = 0; i < 10; i++) { led(i % 2); delay(80); }
+      for (int i = 0; i < 10; i++) { led(i % 2); ledsRG(i % 2, i % 2); delay(80); }
       apagarConfig(); delay(300); ESP.restart();
     }
   } else t0 = 0;
@@ -593,6 +699,9 @@ void setup() {
   Serial.printf("\n[VA01] Boot %s  (reset: %d)\n", FW_VERSION, (int)esp_reset_reason());
 
   if (PIN_LED >= 0) { pinMode(PIN_LED, OUTPUT); led(false); }
+  if (PIN_LED_VERDE    >= 0) pinMode(PIN_LED_VERDE, OUTPUT);
+  if (PIN_LED_VERMELHO >= 0) pinMode(PIN_LED_VERMELHO, OUTPUT);
+  tickLeds();                                     // "ligando": os dois acesos
   pinMode(PIN_BOOT, INPUT_PULLUP);
 
   analogReadResolution(12);
@@ -609,7 +718,10 @@ void setup() {
   Serial.println("[MAC] " + macAddr);
 
   carregarConfig();
+  while (millis() < TESTE_LEDS_MS) { delay(50); esp_task_wdt_reset(); }   // teste dos LEDs
+  testeLeds = false;
   ultimoMv = lerPinoMv(&ultimoSpread);
+  avaliarLeitura(ultimoMv);
   Serial.printf("[ADC] Primeira leitura: %.1f mV no pino (~%.2f V no transmissor)\n",
     ultimoMv, ultimoMv * 5.0f / 1000.0f);
 
@@ -633,5 +745,6 @@ void loop() {
   tickLeitura();
   tickMQTT();
   tickLED();
+  tickLeds();
   delay(2);
 }
