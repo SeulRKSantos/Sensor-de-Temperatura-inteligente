@@ -15,6 +15,7 @@ const commandRoutes = require('./routes/commands');
 const alertRoutes = require('./routes/alerts');
 const reportRoutes = require('./routes/reports');
 const adminRoutes = require('./routes/admin');
+const otaRoutes = require('./routes/ota');
 const { startMaintenance } = require('./services/maintenance');
 
 const app = express();
@@ -52,6 +53,7 @@ app.use('/api/commands', commandRoutes);
 app.use('/api/alerts', alertRoutes);
 app.use('/api/reports', reportRoutes);
 app.use('/api/admin', adminRoutes);
+app.use('/api/ota', otaRoutes);
 
 app.get('/api/health', (req, res) => res.json({ status: 'ok', ts: Date.now() }));
 
@@ -69,6 +71,7 @@ connectMQTT();
 startOfflineChecker();
 startScheduler();
 startMaintenance();
+require('./services/ota').start();
 
 const PORT = process.env.PORT || 3001;
 server.listen(PORT, () => console.log(`TH-GUARD backend rodando na porta ${PORT}`));

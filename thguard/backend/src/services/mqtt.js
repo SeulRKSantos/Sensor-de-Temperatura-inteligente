@@ -4,6 +4,7 @@ const { broadcast } = require('./websocket');
 const db = require('../models/db');
 const { processReading, processIndustrial, isIndicatorOff } = require('./alertManager');
 const industrial = require('./industrial');
+const ota = require('./ota');
 
 let client;
 
@@ -22,6 +23,7 @@ function connectMQTT() {
     client.subscribe('thguard/register',   (err) => { if (!err) console.log('[MQTT] Inscrito em thguard/register'); });
     client.subscribe('thguard/+/data',     (err) => { if (!err) console.log('[MQTT] Inscrito em thguard/+/data'); });
     client.subscribe('thguard/+/status',   (err) => { if (!err) console.log('[MQTT] Inscrito em thguard/+/status'); });
+    client.subscribe('thguard/+/ota',      (err) => { if (!err) console.log('[MQTT] Inscrito em thguard/+/ota'); });
   });
 
   client.on('message', (topic, payload) => {
@@ -44,6 +46,7 @@ function connectMQTT() {
 
       if (type === 'data')   handleData(sensorId, data).catch(fail);
       if (type === 'status') handleStatus(sensorId, data).catch(fail);
+      if (type === 'ota')    ota.handleOtaMessage(sensorId, data).catch(fail);
     } catch (e) {
       console.error('[MQTT] Erro ao processar mensagem:', e.message);
     }
@@ -179,6 +182,7 @@ async function handleStatus(sensorId, data) {
     ...(data.model ? { model: String(data.model).slice(0,30) } : {}),
   });
   broadcast({ type: 'status', sensorId, ...data });
+  if (data.fw) await ota.handleStatusFw(sensorId, String(data.fw).slice(0, 30));
 }
 
 // Sensor na lixeira: nao grava nada nem recria o cadastro. Avisa no log no

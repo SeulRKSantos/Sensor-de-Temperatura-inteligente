@@ -26,6 +26,7 @@ acima na tabela. As piscadas curtas duram 150 ms e cada grupo se repete a cada 3
 | Estado | LED verde | LED vermelho |
 |---|---|---|
 | **Ligando** (primeiros 2 s, testa os LEDs) | aceso | aceso |
+| **Atualizando o firmware pela rede** (a partir da va01-1.2.0) | pisca rápido | pisca rápido, alternando com o verde |
 | Identificar (botão do painel, 15 s) | pisca muito rápido | apagado |
 | **Modo de configuração** (portal aberto sem rede salva, ou alguém conectado nele) | piscada longa | piscada longa, alternando com o verde |
 | **Falha no Wi-Fi** (a rede salva não conecta ou caiu) | apagado | **2 piscadas curtas** |
@@ -53,6 +54,12 @@ O **LED azul da placa** (GPIO2) continua com a sinalização original:
 | pisca muito rápido por 15 s | comando "identificar" enviado pelo painel |
 
 Segurar o botão **BOOT** por 6 s com o ESP ligado apaga a configuração e abre o portal.
+
+## O que mudou na va01-1.2.0
+
+- **Atualização pela rede (OTA)** pelo painel: Administração → Firmware. Veja a seção abaixo.
+- `secrets.h` ganhou `OTA_PUBKEY` (a chave pública copiada do painel). Sem ela o sketch não compila.
+- Status MQTT envia `"ota":1`; LEDs ganharam o estado "atualizando firmware".
 
 ## O que mudou na va01-1.1.0
 
@@ -82,9 +89,13 @@ Igual ao TH-GUARD, com `"kind":"industrial"`:
 -> thguard/register        {"mac":"B4E62D...","kind":"industrial","model":"VA01","fw":"va01-1.1.0"}
 <- thguard/<MAC>/config    {"sensor_id":"ind-001","interval":5}           (retained)
 -> thguard/ind-001/data    {"mv":412.3,"spread":2.1,"n":5,"ts":123456}
--> thguard/ind-001/status  {"ip","ssid","rssi","uptime","mac","kind","model","fw","interval"}
+-> thguard/ind-001/status  {"ip","ssid","rssi","uptime","mac","kind","model","fw","interval","ota":1}
 <- thguard/ind-001/cmd     {"action":"restart" | "reset_eeprom" | "identify" | "read_now" | "set_config", ...}
+<- thguard/ind-001/cmd     {"action":"ota","job":12,"version":"va01-1.2.1","size":1042208,"sha256":"…","sig":"…","path":"/api/ota/fw/<token>","port":8081}
+-> thguard/ind-001/ota     {"job":12,"state":"accepted"|"downloading"|"rebooting"|"done"|"rolled_back"|"error","progress":40,"msg":"…","version":"…"}
 ```
+
+O comando `ota` só é enviado pelo backend (aba Firmware); a rota genérica de comandos do painel não aceita essa ação.
 
 `reset_eeprom` (botão "Apagar ID no ESP" do painel) apaga o ID salvo e força novo registro;
 o firmware também aceita `reset_id`. `set_config` aceita `ssid1`, `pass1`, `ssid2`, `pass2`, `serverIp`, `serverPort` e `interval` (2–300 s).
@@ -92,6 +103,40 @@ o firmware também aceita `reset_id`. `set_config` aceita `ssid1`, `pass1`, `ssi
 > **Importante:** o servidor precisa estar com o backend que suporta sensores industriais
 > (seção **Industrial** no menu do painel). Um backend anterior registraria o VA01 como
 > sensor DHT (`sensor-NNN`) e descartaria as leituras.
+
+## Atualização pela rede (OTA)
+
+```
+Painel (admin) ──upload .bin──▶ backend: confere a imagem e a marca "THGUARD-FW|model=VA01|ver=…|"
+backend ──MQTT cmd "ota" (sha256 + assinatura + link de uso único)──▶ ESP
+ESP ──HTTP GET /api/ota/fw/<token>──▶ Nginx/backend      ESP ──thguard/<id>/ota (andamento)──▶ painel
+ESP confere SHA-256 e assinatura ─▶ grava na outra partição ─▶ reinicia ─▶ conecta ao broker ─▶ confirma
+```
+
+- **Assinatura:** o backend assina cada firmware com uma chave ECDSA P-256 que só existe no servidor
+  (`backend/data/firmware/ota-assinatura.key`). O ESP confere com a chave pública do `secrets.h`
+  (`OTA_PUBKEY`) e recusa qualquer outro arquivo. A senha do MQTT, que está em todos os sensores,
+  não basta para gravar um firmware.
+- **Volta automática:** o core esp32 3.x tem o rollback ligado. A versão nova só é marcada como boa
+  quando conecta ao broker; se não conectar em 5 min, ou travar antes disso, o ESP volta sozinho para
+  a anterior e o painel mostra a falha.
+- **Um sensor por vez:** se um falhar, os seguintes do mesmo envio são cancelados.
+- **Download:** pelo mesmo IP do broker (`cfg_server`) na porta do painel (`OTA_HTTP_PORT`, padrão 8081),
+  ou por `OTA_BASE_URL` se estiver definido no `.env` do backend. O link vale só para aquele job.
+- **Primeira vez:** cada sensor precisa receber a va01-1.2.0 por USB, já com a `OTA_PUBKEY` do servidor.
+  A partir daí, as próximas versões vão pelo painel.
+
+### Publicar uma versão nova
+
+1. Aumente `FW_VERSION` no `.ino` (ex.: `va01-1.2.1`). O servidor recusa um arquivo diferente com a mesma versão.
+2. Compile com a pasta de saída:
+   ```bash
+   arduino-cli compile --fqbn esp32:esp32:esp32 --output-dir build .
+   ```
+3. No painel, **Administração → Firmware → Firmwares no servidor**, envie `build/va01_industrial.ino.bin`
+   (não o `merged`, o `bootloader` nem o `partitions`).
+4. Em **Atualizar sensores**, escolha a versão, marque os sensores e clique em **Atualizar**. Cada sensor
+   fica cerca de 1 minuto sem enviar leituras.
 
 ## Gravar (notebook)
 
@@ -101,7 +146,7 @@ Bibliotecas: **PubSubClient** e **ArduinoJson** (v7).
 arduino-cli lib install PubSubClient ArduinoJson
 cd Sensor-de-Temperatura-inteligente/thguard/firmware/va01_industrial
 cp secrets.h.example secrets.h
-nano secrets.h
+nano secrets.h        # inclua a OTA_PUBKEY copiada do painel (Administração → Firmware)
 arduino-cli compile --fqbn esp32:esp32:esp32 .
 arduino-cli upload -p /dev/ttyACM0 --fqbn esp32:esp32:esp32 .
 arduino-cli monitor -p /dev/ttyACM0 -c baudrate=115200

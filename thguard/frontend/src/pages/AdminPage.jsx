@@ -5,13 +5,15 @@ import { admin } from '../hooks/api'
 import {
   HardDrive, Database, Activity, FileText, Archive, Trash2, RotateCcw, Download, RefreshCw,
   AlertTriangle, Search, Server, Mail, ScrollText, Settings, Cpu, X,
+  Upload, KeyRound, Copy, History, Ban, CircuitBoard,
 } from 'lucide-react'
 
 // Painel de administração (só admin): espaço, métricas, lixeira de sensores,
 // exclusão de leituras, arquivos guardados, logs e retenção.
 const ABAS = [
   ['geral', 'Visão geral', Activity], ['sensores', 'Sensores', Cpu], ['dados', 'Leituras', Database],
-  ['arquivos', 'Arquivos', Archive], ['logs', 'Logs', ScrollText], ['config', 'Retenção', Settings],
+  ['arquivos', 'Arquivos', Archive], ['firmware', 'Firmware', CircuitBoard], ['logs', 'Logs', ScrollText],
+  ['config', 'Retenção', Settings],
 ]
 
 // ── formatação ────────────────────────────────────────────────────
@@ -593,6 +595,232 @@ function Logs({ t }) {
   )
 }
 
+// ── Firmware: atualização dos sensores pela rede (OTA) ────────────
+const OTA_ST = {
+  queued: ['Na fila', 'var(--muted)'], sent: ['Comando enviado', 'var(--accent2)'], accepted: ['Aceito pelo sensor', 'var(--accent2)'],
+  downloading: ['Baixando e gravando', 'var(--accent2)'], rebooting: ['Reiniciando', 'var(--warn)'],
+  done: ['Concluído', '#22c55e'], failed: ['Falhou', 'var(--danger)'], cancelled: ['Cancelado', 'var(--muted)'],
+}
+const OTA_ATIVO = ['queued', 'sent', 'accepted', 'downloading', 'rebooting']
+
+function Firmware({ t }) {
+  const [d, setD] = useState(null)
+  const [msg, setMsg] = useState(null)
+  const [busy, setBusy] = useState(false)
+  const [fwSel, setFwSel] = useState('')
+  const [sel, setSel] = useState(new Set())
+  const [arquivo, setArquivo] = useState(null)
+  const [notas, setNotas] = useState('')
+  const [dlg, setDlg] = useState(null)          // { tipo: 'deploy' } | { tipo: 'apagar', fw }
+  const [copiado, setCopiado] = useState(false)
+  const inputRef = useRef(null)
+
+  const carregar = useCallback(() => admin.firmware(t()).then((r) => {
+    setD(r)
+    setFwSel((cur) => cur && r.firmwares.some((f) => String(f.id) === String(cur)) ? cur : (r.firmwares[0] ? String(r.firmwares[0].id) : ''))
+  }).catch((e) => setMsg({ tipo: 'erro', texto: e.message })), [])
+  useEffect(() => { carregar() }, [carregar])
+  const emAndamento = !!d?.jobs.some((j) => OTA_ATIVO.includes(j.status))
+  useEffect(() => {                             // acompanha o andamento a cada 2 s
+    if (!emAndamento) return undefined
+    const id = setInterval(carregar, 2000)
+    return () => clearInterval(id)
+  }, [emAndamento, carregar])
+
+  async function acao(fn, ok) {
+    setBusy(true); setMsg(null)
+    try { const r = await fn(); setMsg({ tipo: 'ok', texto: typeof ok === 'function' ? ok(r) : ok }); setDlg(null); await carregar(); return r }
+    catch (e) { setMsg({ tipo: 'erro', texto: e.message }) }
+    finally { setBusy(false) }
+    return null
+  }
+
+  async function enviar(e) {
+    e.preventDefault()
+    if (!arquivo) return
+    const r = await acao(() => admin.firmwareUpload(arquivo, notas, t()),
+      (x) => x.duplicate ? `Este arquivo já estava no servidor (${x.version}).` : `Firmware ${x.version} (${x.model}) recebido e conferido.`)
+    if (r) { setArquivo(null); setNotas(''); if (inputRef.current) inputRef.current.value = ''; setFwSel(String(r.id)) }
+  }
+
+  async function copiar() {
+    try { await navigator.clipboard.writeText(d.publicKey.macro); setCopiado(true); setTimeout(() => setCopiado(false), 2500) }
+    catch { setMsg({ tipo: 'warn', texto: 'Não foi possível copiar automaticamente. Selecione o texto e copie com Ctrl+C.' }) }
+  }
+
+  if (!d) return <><Msg m={msg} /><div className="adm-muted">Carregando…</div></>
+  const fw = d.firmwares.find((f) => String(f.id) === String(fwSel))
+  const motivo = (s) => {
+    if (s.busy) return s.busy === 'queued' ? 'Na fila de atualização' : `Atualizando agora (${OTA_ST[s.busy][0].toLowerCase()})`
+    if (s.reason) return s.reason
+    if (!fw) return 'escolha um firmware'
+    if (String(s.model || '').toUpperCase() !== fw.model) return `firmware de outro modelo (${fw.model})`
+    if (s.fw === fw.version) return 'já está nesta versão'
+    return null
+  }
+  const aptos = d.sensors.filter((s) => !motivo(s))
+  const escolhidos = aptos.filter((s) => sel.has(s.id))
+  const alternar = (id) => setSel((cur) => { const n = new Set(cur); n.has(id) ? n.delete(id) : n.add(id); return n })
+  const ativos = d.jobs.filter((j) => OTA_ATIVO.includes(j.status)).sort((a, b) => a.id - b.id)
+  const lotesComFila = [...new Set(ativos.filter((j) => j.status === 'queued').map((j) => j.batch))]
+
+  return (
+    <div style={{ display: 'grid', gap: 16 }}>
+      <Msg m={msg} />
+
+      {ativos.length > 0 && (
+        <Card title="Atualização em andamento" icon={RefreshCw}
+          right={lotesComFila.map((b) => <Btn key={b} disabled={busy} onClick={() => acao(() => admin.otaCancel(b, t()), (r) => `${r.cancelled} atualização(ões) tirada(s) da fila.`)}><Ban size={13} /> Cancelar a fila</Btn>)}>
+          <div style={{ display: 'grid', gap: 12 }}>
+            {ativos.map((j) => (
+              <div key={j.id} className="adm-ota-row">
+                <div className="adm-ota-h">
+                  <span><b>{j.sensorName || j.sensorId}</b> <span className="adm-sub mono">{j.sensorId}</span></span>
+                  <span className="mono" style={{ fontSize: 12 }}>{j.fromVersion || '?'} → {j.toVersion}</span>
+                </div>
+                <div className="adm-ota-bar" role="progressbar" aria-valuemin={0} aria-valuemax={100} aria-valuenow={j.progress ?? 0} aria-label={`Progresso de ${j.sensorId}`}>
+                  <span style={{ width: `${j.status === 'queued' ? 0 : j.progress ?? 0}%`, background: OTA_ST[j.status][1] }} />
+                </div>
+                <div className="adm-sub" style={{ color: OTA_ST[j.status][1] }}>
+                  {OTA_ST[j.status][0]}{j.status === 'downloading' && j.progress != null ? ` · ${j.progress}%` : ''}{j.message && !['queued', 'downloading'].includes(j.status) ? ` · ${j.message}` : ''}
+                </div>
+              </div>
+            ))}
+          </div>
+          <p className="adm-note">Um sensor por vez. Se um falhar, os seguintes do mesmo envio são cancelados. Depois de reiniciar, o sensor tem até 5 minutos para se conectar com a versão nova; se não conseguir, ele volta sozinho para a anterior.</p>
+        </Card>
+      )}
+
+      <Card title="Atualizar sensores" icon={CircuitBoard}>
+        {!d.firmwares.length ? <p className="adm-muted" style={{ margin: 0 }}>Envie um firmware abaixo para começar.</p> : (<>
+          <div className="adm-form" style={{ marginBottom: 12 }}>
+            <label className="adm-field" htmlFor="ota-fw">Firmware
+              <select id="ota-fw" className="adm-input" value={fwSel} onChange={(e) => { setFwSel(e.target.value); setSel(new Set()) }}>
+                {d.firmwares.map((f) => <option key={f.id} value={f.id}>{f.version} ({f.model}){f.notes ? ` · ${f.notes}` : ''}</option>)}
+              </select>
+            </label>
+            <Btn onClick={() => setSel(new Set(aptos.map((s) => s.id)))} disabled={!aptos.length}>Marcar todos os aptos</Btn>
+            <Btn onClick={() => setSel(new Set())} disabled={!sel.size}>Desmarcar</Btn>
+          </div>
+          <div className="adm-table-wrap"><table className="adm-table">
+            <thead><tr><th style={{ width: 34 }} /><th>Sensor</th><th>Estado</th><th>Versão atual</th><th>Situação</th></tr></thead>
+            <tbody>
+              {d.sensors.map((s) => {
+                const m = motivo(s)
+                return (
+                  <tr key={s.id} className={sel.has(s.id) && !m ? 'sel' : ''}>
+                    <td><input type="checkbox" aria-label={`Atualizar ${s.name}`} disabled={!!m} checked={sel.has(s.id) && !m} onChange={() => alternar(s.id)} /></td>
+                    <td><b>{s.name}</b><div className="adm-sub mono">{s.id}{s.model ? ` · ${s.model}` : ''}</div></td>
+                    <td><span className={`adm-dot ${s.online ? 'on' : 'off'}`} />{s.online ? 'Online' : 'Offline'}</td>
+                    <td className="mono">{s.fw || '—'}</td>
+                    <td className={m ? 'adm-muted' : ''}>{m || 'Pode atualizar'}</td>
+                  </tr>
+                )
+              })}
+              {!d.sensors.length && <tr><td colSpan={5} className="adm-muted">Nenhum sensor com atualização pela rede.</td></tr>}
+            </tbody>
+          </table></div>
+          <div style={{ marginTop: 12, display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap' }}>
+            <Btn variant="pri" disabled={!escolhidos.length || busy} onClick={() => setDlg({ tipo: 'deploy' })}>
+              <Upload size={13} /> {escolhidos.length ? `Atualizar ${escolhidos.length} sensor${escolhidos.length === 1 ? '' : 'es'} para ${fw?.version}` : 'Marque os sensores para atualizar'}
+            </Btn>
+            <span className="adm-muted" style={{ fontSize: 12 }}>Sensores com firmware anterior à {d.otaMin.VA01} precisam de uma gravação por USB antes da primeira atualização pela rede.</span>
+          </div>
+        </>)}
+      </Card>
+
+      <Card title="Firmwares no servidor" icon={Upload}>
+        <form onSubmit={enviar} className="adm-form" style={{ marginBottom: 12 }}>
+          <label className="adm-field" htmlFor="ota-arq">Arquivo .bin
+            <input id="ota-arq" ref={inputRef} type="file" accept=".bin,application/octet-stream" className="adm-input" onChange={(e) => setArquivo(e.target.files[0] || null)} />
+          </label>
+          <label className="adm-field" htmlFor="ota-notas" style={{ flex: 1, minWidth: 200 }}>Observação (opcional)
+            <input id="ota-notas" className="adm-input" maxLength={300} value={notas} onChange={(e) => setNotas(e.target.value)} placeholder="O que mudou nesta versão" />
+          </label>
+          <Btn variant="pri" type="submit" disabled={!arquivo || busy}>{busy && arquivo ? 'Enviando…' : 'Enviar firmware'}</Btn>
+        </form>
+        <p className="adm-note" style={{ marginTop: 0 }}>
+          Envie o <code>va01_industrial.ino.bin</code> gerado pelo <code>arduino-cli compile --output-dir</code> (não o <code>merged</code> nem o <code>bootloader</code>).
+          O servidor confere o modelo e a versão gravados no arquivo; cada versão nova precisa de um <code>FW_VERSION</code> novo no código.
+        </p>
+        <div className="adm-table-wrap"><table className="adm-table">
+          <thead><tr><th>Versão</th><th>Modelo</th><th className="num">Tamanho</th><th>SHA-256</th><th>Enviado</th><th className="num">Instalações</th><th /></tr></thead>
+          <tbody>
+            {d.firmwares.map((f) => (
+              <tr key={f.id}>
+                <td><b className="mono">{f.version}</b>{f.notes && <div className="adm-sub">{f.notes}</div>}</td>
+                <td>{f.model}</td>
+                <td className="num">{fmtBytes(f.size)}</td>
+                <td className="mono" title={f.sha256}>{f.sha256.slice(0, 12)}…</td>
+                <td>{fmtDT(f.uploadedAt)}<div className="adm-sub">{f.uploadedBy || '—'}</div></td>
+                <td className="num">{fmtN(f.installs)}</td>
+                <td className="right"><Btn variant="danger" disabled={busy} onClick={() => setDlg({ tipo: 'apagar', fw: f })}><Trash2 size={13} /> Apagar</Btn></td>
+              </tr>
+            ))}
+            {!d.firmwares.length && <tr><td colSpan={7} className="adm-muted">Nenhum firmware enviado.</td></tr>}
+          </tbody>
+        </table></div>
+      </Card>
+
+      <Card title="Histórico de atualizações" icon={History}>
+        <div className="adm-table-wrap"><table className="adm-table">
+          <thead><tr><th>Quando</th><th>Sensor</th><th>Versão</th><th>Resultado</th><th>Detalhe</th><th>Por</th></tr></thead>
+          <tbody>
+            {d.jobs.map((j) => (
+              <tr key={j.id}>
+                <td className="nowrap">{fmtDT(j.finishedAt || j.startedAt || j.createdAt)}</td>
+                <td><b>{j.sensorName || j.sensorId}</b><div className="adm-sub mono">{j.sensorId}</div></td>
+                <td className="mono nowrap">{j.fromVersion || '?'} → {j.toVersion}</td>
+                <td style={{ color: OTA_ST[j.status]?.[1], fontWeight: 600 }} className="nowrap">{OTA_ST[j.status]?.[0] || j.status}</td>
+                <td className="msg">{j.message || '—'}</td>
+                <td>{j.createdBy || '—'}</td>
+              </tr>
+            ))}
+            {!d.jobs.length && <tr><td colSpan={6} className="adm-muted">Nenhuma atualização feita ainda.</td></tr>}
+          </tbody>
+        </table></div>
+      </Card>
+
+      <Card title="Chave pública para o secrets.h" icon={KeyRound} right={<Btn onClick={copiar}><Copy size={13} /> {copiado ? 'Copiado' : 'Copiar'}</Btn>}>
+        <p className="adm-note" style={{ marginTop: 0 }}>
+          Cole estas linhas no <code>secrets.h</code> do firmware antes de gravar por USB. O sensor só instala firmware assinado pela chave privada deste servidor
+          (impressão digital <span className="mono">{d.publicKey.fingerprint}</span>).
+        </p>
+        <pre className="adm-code">{d.publicKey.macro}</pre>
+        <p className="adm-note" style={{ marginBottom: 0 }}>
+          A chave privada fica em <code>backend/data/firmware/ota-assinatura.key</code> no servidor. Inclua essa pasta no backup: se ela se perder, o servidor cria outra
+          e os sensores voltam a aceitar firmware só por USB.
+        </p>
+      </Card>
+
+      {dlg?.tipo === 'deploy' && (
+        <div className="adm-overlay" role="dialog" aria-modal="true" aria-labelledby="adm-ota-t">
+          <div className="adm-dialog">
+            <h3 id="adm-ota-t" className="adm-dialog-info"><Upload size={17} /> Atualizar {escolhidos.length} sensor{escolhidos.length === 1 ? '' : 'es'} para {fw?.version}?</h3>
+            <div className="adm-dialog-body">
+              <ul style={{ margin: '0 0 10px 18px' }}>
+                {escolhidos.map((s) => <li key={s.id}><b>{s.name}</b> <span className="mono adm-sub">{s.fw} → {fw?.version}</span></li>)}
+              </ul>
+              Os sensores são atualizados um de cada vez, nesta ordem. Cada um fica cerca de 1 minuto sem enviar leituras enquanto baixa o firmware e reinicia.
+              Se algum falhar, os seguintes não são atualizados.
+            </div>
+            <div className="adm-dialog-actions">
+              <Btn onClick={() => setDlg(null)} disabled={busy}>Cancelar</Btn>
+              <Btn variant="pri" disabled={busy} onClick={async () => { const r = await acao(() => admin.firmwareDeploy(fw.id, escolhidos.map((s) => s.id), t()), (x) => `Atualização de ${x.count} sensor(es) iniciada.`); if (r) setSel(new Set()) }}>
+                {busy ? 'Iniciando…' : 'Atualizar'}
+              </Btn>
+            </div>
+          </div>
+        </div>
+      )}
+      <ConfirmDialog open={dlg?.tipo === 'apagar'} busy={busy} title={`Apagar o firmware ${dlg?.fw?.version}?`} label="Apagar firmware" onCancel={() => setDlg(null)}
+        onConfirm={() => acao(() => admin.firmwareDelete(dlg.fw.id, t()), `Firmware ${dlg.fw.version} apagado. O histórico das atualizações foi mantido.`)}>
+        O arquivo sai do servidor e não pode mais ser enviado aos sensores. Os sensores que já estão nesta versão continuam funcionando.
+      </ConfirmDialog>
+    </div>
+  )
+}
+
 // ── Retenção ──────────────────────────────────────────────────────
 function Config({ t }) {
   const [s, setS] = useState(null)
@@ -651,7 +879,7 @@ export default function AdminPage() {
     <div style={{ maxWidth: 1400 }}>
       <div style={{ marginBottom: 20 }}>
         <h1 style={{ fontSize: 20, fontWeight: 600 }}>Administração</h1>
-        <p style={{ color: 'var(--muted)', fontSize: 13, marginTop: 2 }}>Espaço ocupado, sensores, leituras, arquivos e logs do TH-GUARD</p>
+        <p style={{ color: 'var(--muted)', fontSize: 13, marginTop: 2 }}>Espaço ocupado, sensores, leituras, arquivos, firmware e logs do TH-GUARD</p>
       </div>
       <div className="subtabs adm-tabs" role="tablist" aria-label="Seções da administração">
         {ABAS.map(([k, label, I]) => (
@@ -664,6 +892,7 @@ export default function AdminPage() {
       {aba === 'sensores' && <Sensores t={t} />}
       {aba === 'dados' && <Dados t={t} />}
       {aba === 'arquivos' && <Arquivos t={t} />}
+      {aba === 'firmware' && <Firmware t={t} />}
       {aba === 'logs' && <Logs t={t} />}
       {aba === 'config' && <Config t={t} />}
     </div>

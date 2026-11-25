@@ -29,6 +29,23 @@ async function req(method, path, body, token) {
   return data
 }
 
+// Envio de arquivo binário (upload de firmware)
+async function reqBin(method, path, blob, token) {
+  const res = await fetch(BASE + path, {
+    method,
+    headers: { 'Content-Type': 'application/octet-stream', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+    body: blob,
+  })
+  if (res.status === 401) {
+    handleUnauthorized()
+    throw new Error('Sessao expirada')
+  }
+  if (res.status === 413) throw new Error('Arquivo grande demais para o servidor. Confira o client_max_body_size do Nginx (2m).')
+  const data = await res.json().catch(() => ({}))
+  if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`)
+  return data
+}
+
 async function reqRaw(method, path, token) {
   const res = await fetch(BASE + path, { method, headers: headers(token) })
   if (res.status === 401) {
@@ -103,4 +120,10 @@ export const admin = {
   containerLogs:    (name, tail, t) => req('GET', `/admin/logs/containers/${encodeURIComponent(name)}?${qs({ tail })}`, null, t),
   settings:         (t) => req('GET', '/admin/settings', null, t),
   saveSettings:     (body, t) => req('PUT', '/admin/settings', body, t),
+  // Firmware e atualização pela rede (OTA)
+  firmware:         (t) => req('GET', '/admin/firmware', null, t),
+  firmwareUpload:   (file, notes, t) => reqBin('POST', `/admin/firmware?${qs({ notes })}`, file, t),
+  firmwareDelete:   (id, t) => req('DELETE', `/admin/firmware/${id}`, { confirm: 'EXCLUIR' }, t),
+  firmwareDeploy:   (id, sensors, t) => req('POST', `/admin/firmware/${id}/deploy`, { sensors }, t),
+  otaCancel:        (batch, t) => req('POST', `/admin/ota/batches/${encodeURIComponent(batch)}/cancel`, {}, t),
 }

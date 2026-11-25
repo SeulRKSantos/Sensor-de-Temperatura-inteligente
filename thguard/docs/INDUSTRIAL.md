@@ -142,6 +142,13 @@ O log deve mostrar `[DB] Schema verificado (sensores industriais).`
 Para voltar atrás: extraia o `.tgz` do backup, rode o `docker compose up -d --build` e reinicie o Nginx de novo.
 As colunas e a tabela novas podem ficar no banco; o código antigo as ignora.
 
+## Atualização do firmware pela rede
+
+A partir da va01-1.2.0 o VA01 pode ser atualizado pelo painel (**Administração → Firmware**), com
+firmware assinado pelo servidor e volta automática para a versão anterior se a nova não se conectar.
+Detalhes e passo a passo: [`firmware/va01_industrial/README.md`](../firmware/va01_industrial/README.md#atualização-pela-rede-ota)
+e [`docs/ADMINISTRACAO.md`](ADMINISTRACAO.md).
+
 ## Observações
 
 - Excluir um sensor limpa a config retida no broker, mas se o ESP continuar ligado ele volta a

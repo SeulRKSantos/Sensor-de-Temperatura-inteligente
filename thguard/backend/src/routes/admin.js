@@ -1,6 +1,7 @@
 // Painel de administração: espaço, métricas, lixeira de sensores, exclusão de
 // leituras, arquivos guardados e logs. Tudo só para admin e tudo auditado.
-const router = require('express').Router();
+const express = require('express');
+const router = express.Router();
 const { auth } = require('../middleware/auth');
 const db = require('../models/db');
 const files = require('../services/files');
@@ -8,6 +9,8 @@ const influxAdmin = require('../services/influxAdmin');
 const dockerLogs = require('../services/dockerLogs');
 const logger = require('../services/logger');
 const { purgeSensor } = require('../services/maintenance');
+const ota = require('../services/ota');
+const firmware = require('../services/firmware');
 
 router.use(auth(['admin']));
 
@@ -15,7 +18,7 @@ const wrap = (fn) => async (req, res) => {
   try { await fn(req, res); }
   catch (e) {
     if (!e.status || e.status >= 500) console.error(`[ADMIN] ${req.method} ${req.path}:`, e.message);
-    res.status(e.status || 500).json({ error: e.message });
+    res.status(e.status || 500).json({ error: e.message, ...(e.problems ? { problems: e.problems } : {}) });
   }
 };
 const bad = (msg, status = 400) => Object.assign(new Error(msg), { status });
@@ -229,6 +232,33 @@ router.put('/settings', wrap(async (req, res) => {
   await db.saveSettings(clean);
   logger.audit(req.user, 'admin', `Configuracoes de retencao alteradas: ${JSON.stringify(clean)}`);
   res.json(await db.getSettings());
+}));
+
+// ── Firmware: atualização dos sensores pela rede (OTA) ─────────────
+router.get('/firmware', wrap(async (req, res) => {
+  const [firmwares, sensors, jobs, key] = await Promise.all([
+    ota.listFirmware(), ota.sensorsForOta(), ota.listJobs(Number(req.query.limit) || 100), firmware.publicKey(),
+  ]);
+  res.json({ firmwares, sensors, jobs, publicKey: key, otaMin: firmware.OTA_MIN, maxSize: firmware.MAX_SIZE });
+}));
+
+// Corpo = o .bin cru (application/octet-stream); observação opcional em ?notes=
+router.post('/firmware', express.raw({ type: 'application/octet-stream', limit: '2mb' }), wrap(async (req, res) => {
+  const r = await ota.addFirmware(req.body, { notes: req.query.notes, user: req.user });
+  res.status(r.duplicate ? 200 : 201).json(r);
+}));
+
+router.delete('/firmware/:id', wrap(async (req, res) => {
+  requireConfirm(req);
+  res.json(await ota.removeFirmware(req.params.id, req.user));
+}));
+
+router.post('/firmware/:id/deploy', wrap(async (req, res) => {
+  res.status(202).json(await ota.deploy(req.params.id, req.body?.sensors, req.user));
+}));
+
+router.post('/ota/batches/:batch/cancel', wrap(async (req, res) => {
+  res.json(await ota.cancelBatch(req.params.batch, req.user));
 }));
 
 module.exports = router;

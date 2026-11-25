@@ -153,7 +153,38 @@ async function ensureSchema() {
     id         VARCHAR(50) PRIMARY KEY,
     retired_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
   )`);
-  console.log('[DB] Schema verificado (sensores industriais, lixeira e administracao).');
+  // Atualizacao de firmware pela rede (OTA): arquivos enviados e historico por sensor
+  await query(`CREATE TABLE IF NOT EXISTS firmware (
+    id          INT AUTO_INCREMENT PRIMARY KEY,
+    model       VARCHAR(20) NOT NULL,
+    version     VARCHAR(30) NOT NULL,
+    filename    VARCHAR(120) NOT NULL,
+    size        INT NOT NULL,
+    sha256      CHAR(64) NOT NULL,
+    notes       VARCHAR(300) DEFAULT NULL,
+    uploaded_by VARCHAR(120) DEFAULT NULL,
+    uploaded_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE KEY uq_model_version (model, version)
+  )`);
+  await query(`CREATE TABLE IF NOT EXISTS ota_jobs (
+    id           BIGINT AUTO_INCREMENT PRIMARY KEY,
+    batch        CHAR(36) NOT NULL,
+    sensor_id    VARCHAR(50) NOT NULL,
+    firmware_id  INT NOT NULL,
+    from_version VARCHAR(30) DEFAULT NULL,
+    to_version   VARCHAR(30) NOT NULL,
+    status       VARCHAR(12) NOT NULL DEFAULT 'queued',
+    progress     TINYINT DEFAULT NULL,
+    message      VARCHAR(300) DEFAULT NULL,
+    token        CHAR(64) DEFAULT NULL,
+    created_by   VARCHAR(120) DEFAULT NULL,
+    created_at   DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    started_at   DATETIME DEFAULT NULL,
+    updated_at   DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    finished_at  DATETIME DEFAULT NULL,
+    INDEX idx_ota_status (status), INDEX idx_ota_sensor (sensor_id), INDEX idx_ota_batch (batch), UNIQUE KEY uq_ota_token (token)
+  )`);
+  console.log('[DB] Schema verificado (sensores industriais, lixeira, administracao e OTA).');
 }
 let schemaReady = null;
 function schema() {

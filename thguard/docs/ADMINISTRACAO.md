@@ -25,6 +25,19 @@ sistema com o usuário que fez. Exclusões pedem a palavra `EXCLUIR` digitada.
   - *Backups do MariaDB*: a pasta `BACKUP_HOST_DIR` montada em `/backups`. Só arquivos de backup
     (`.sql`, `.gz`, `.zip`, `.tgz`…) podem ser apagados por aqui.
   - Baixar, apagar selecionados ou apagar os mais antigos que N dias.
+- **Firmware:** atualização dos sensores pela rede (hoje só o industrial VA01, a partir da va01-1.2.0).
+  - *Firmwares no servidor*: envio do `.bin`. O backend confere se é a imagem do programa do ESP32 e lê
+    a marca `THGUARD-FW|model=…|ver=…|` gravada pelo firmware; recusa outro modelo, versão sem OTA e
+    a mesma versão com conteúdo diferente. Arquivos em `backend/data/firmware/`.
+  - *Atualizar sensores*: escolhe a versão e os sensores. Um sensor por vez; se um falhar, os
+    seguintes do mesmo envio são cancelados. Sensores offline, de outro modelo, já na versão ou com
+    firmware sem OTA aparecem com o motivo e não podem ser marcados.
+  - *Atualização em andamento*: progresso de cada sensor e botão para tirar da fila quem ainda não começou.
+  - *Histórico*: quem atualizou, de qual versão para qual, e o resultado (concluído, falhou, cancelado).
+  - *Chave pública para o secrets.h*: linhas prontas para o `OTA_PUBKEY` do firmware. A chave privada
+    (`backend/data/firmware/ota-assinatura.key`) é criada no primeiro uso e nunca sai do servidor:
+    **faça uma cópia dela**. Se ela se perder, os sensores só voltam a aceitar firmware por USB.
+  - O upload passa pelo Nginx: o `location /api/` precisa de `client_max_body_size 2m;`.
 - **Logs:**
   - *Sistema*: tudo o que o backend escreve no console (MQTT, e-mails, agendador, erros) mais logins
     (inclusive os recusados) e ações de administração, na tabela `system_log`. Filtro por nível,

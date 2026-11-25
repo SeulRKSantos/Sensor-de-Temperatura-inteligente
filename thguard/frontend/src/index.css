@@ -158,3 +158,12 @@ body {
 .adm-disk:last-child { border-bottom: 0; padding-bottom: 0; }
 .adm-disk-h { display: flex; justify-content: space-between; gap: 12px; flex-wrap: wrap; font-size: 13px; }
 .adm-disk-h .mono { color: var(--muted); font-size: 12px; }
+
+/* Firmware (OTA) */
+.adm-ota-row { display: grid; gap: 6px; padding-bottom: 12px; border-bottom: 1px solid var(--border); }
+.adm-ota-row:last-child { border-bottom: 0; padding-bottom: 0; }
+.adm-ota-h { display: flex; justify-content: space-between; gap: 12px; flex-wrap: wrap; font-size: 13px; }
+.adm-ota-bar { height: 6px; border-radius: 3px; background: var(--border); overflow: hidden; }
+.adm-ota-bar > span { display: block; height: 100%; border-radius: 3px; transition: width .4s ease; }
+.adm-dialog h3.adm-dialog-info svg { color: var(--accent2); }
+@media (prefers-reduced-motion: reduce) { .adm-ota-bar > span { transition: none; } }

@@ -15,7 +15,14 @@
 //    <- thguard/<MAC>/config        {"sensor_id":"ind-001","interval":5}  (retained)
 //    -> thguard/<id>/data           {"mv":412.3,"spread":2.1,"n":5,"ts":...}
 //    -> thguard/<id>/status         {"ip","ssid","rssi","uptime","mac","kind","fw","interval"}
-//    <- thguard/<id>/cmd            restart | reset_id | set_config | identify | read_now
+//    <- thguard/<id>/cmd            restart | reset_id | set_config | identify | read_now | ota
+//    -> thguard/<id>/ota            {"job","state","progress","msg","version"}  (atualizacao pela rede)
+//
+//  Atualizacao pela rede (OTA): o painel envia o comando "ota"; o ESP baixa o .bin
+//  do servidor por HTTP, confere o SHA-256 e a ASSINATURA (chave publica OTA_PUBKEY
+//  no secrets.h; a chave privada fica so no servidor) e grava na outra particao.
+//  Depois de reiniciar, a versao nova so e confirmada quando conecta ao broker; se
+//  nao conectar em 5 min (ou travar antes), o ESP volta sozinho para a versao anterior.
 //
 //  Sinalizacao: LED verde (GPIO25) e LED vermelho (GPIO26), tabela abaixo,
 //  alem do LED azul da placa (GPIO2) e do Serial (115200).
@@ -31,10 +38,22 @@
 #include <PubSubClient.h>
 #include <ArduinoJson.h>
 #include <esp_task_wdt.h>
+#include <HTTPClient.h>
+#include <Update.h>
+#include <esp_ota_ops.h>
+#include <mbedtls/sha256.h>
+#include <mbedtls/pk.h>
+#include <mbedtls/base64.h>
 #include "secrets.h"
 
-#define FW_VERSION "va01-1.1.0"
+#ifndef OTA_PUBKEY
+#error "Falta OTA_PUBKEY no secrets.h: copie a chave publica em Painel de administracao > Firmware (veja secrets.h.example)"
+#endif
+
+#define FW_VERSION "va01-1.2.0"
 #define MODEL      "VA01"
+// Marca lida pelo servidor no upload do .bin: impede gravar firmware de outro modelo
+const char FW_MARK[] = "THGUARD-FW|model=" MODEL "|ver=" FW_VERSION "|";
 
 // ══════════════════════════════════════════
 //  HARDWARE
@@ -56,10 +75,14 @@
 #define ID_TIMEOUT_MS    60000UL // conectado ao broker e sem ID por 60 s = falha do servidor
 #define TESTE_LEDS_MS    2000UL  // "ligando": os dois LEDs acesos ao ligar
 
+// Atualizacao pela rede
+#define OTA_VERIFY_MS    300000UL  // versao nova tem 5 min para conectar ao broker
+#define OTA_STALL_MS     20000UL   // download parado por 20 s = erro
+
 // Estados dos LEDs (declarados aqui em cima por causa dos prototipos gerados pelo Arduino)
-enum EstadoLed { L_LIGANDO, L_IDENTIFICAR, L_CONFIG, L_FALHA_WIFI, L_FALHA_SERVIDOR,
+enum EstadoLed { L_LIGANDO, L_OTA, L_IDENTIFICAR, L_CONFIG, L_FALHA_WIFI, L_FALHA_SERVIDOR,
                  L_FALHA_LEITURA, L_INICIANDO, L_THERMA_OFF, L_NORMAL };
-const char* NOME_ESTADO[] = { "ligando", "identificar", "modo de configuracao", "falha no Wi-Fi",
+const char* NOME_ESTADO[] = { "ligando", "atualizando firmware", "identificar", "modo de configuracao", "falha no Wi-Fi",
   "falha com o servidor", "falha de leitura", "iniciando", "Therma desligado", "operando" };
 
 
@@ -123,6 +146,14 @@ unsigned long identifyAte = 0;
 bool   jaConectouWifi = false, wifiFalhou = false;
 bool   jaConectouMqtt = false, mqttFalhou = false;
 unsigned long t_mqttOk = 0;          // quando o broker conectou (para o timeout do ID)
+// Atualizacao pela rede
+struct PedidoOta { bool pendente = false; long job = 0; String versao, sha, assinatura, url; uint32_t tamanho = 0; } ota;
+bool   otaEmAndamento = false;
+bool   otaVerificar   = false;      // rodando versao nova ainda nao confirmada
+long   otaJobBoot     = 0;          // job salvo antes de reiniciar (NVS)
+String otaAlvoBoot;                 // versao esperada depois do reinicio
+String TOPIC_OTA;
+
 bool   testeLeds = true;                // "ligando" ate o fim do teste dos LEDs no setup
 bool   falhaLeitura = false, thermaOff = false;
 int    contFalha = 0, contOk = 0;
@@ -158,6 +189,7 @@ void tickLED() {
 //
 //   Estado                        Verde                    Vermelho
 //   ligando (2 s)                 aceso                    aceso
+//   atualizando firmware          pisca rapido, alternando com o vermelho
 //   identificar (painel, 15 s)    pisca muito rapido       apagado
 //   modo de configuracao          piscada longa, alternando com o vermelho
 //   falha no Wi-Fi                apagado                  2 piscadas curtas
@@ -182,6 +214,7 @@ EstadoLed estadoAtual() {
   unsigned long m = millis();
   bool wifiOk = WiFi.status() == WL_CONNECTED;
   if (testeLeds) return L_LIGANDO;
+  if (otaEmAndamento) return L_OTA;
   if (identifyAte && m < identifyAte) return L_IDENTIFICAR;
   if (modoPortal && !wifiOk && (cfg_ssid1.length() == 0 || WiFi.softAPgetStationNum() > 0)) return L_CONFIG;
   if (!wifiOk) return (wifiFalhou || jaConectouWifi) ? L_FALHA_WIFI : L_INICIANDO;
@@ -201,6 +234,7 @@ void tickLeds() {
   bool longa = (m / 1000UL) % 2 == 0;
   switch (e) {
     case L_LIGANDO:        ledsRG(true, true); break;
+    case L_OTA:            { bool f = (m / 250UL) % 2; ledsRG(f, !f); } break;
     case L_IDENTIFICAR:    ledsRG((m / 60UL) % 2, false); break;
     case L_CONFIG:         ledsRG(longa, !longa); break;
     case L_FALHA_WIFI:     ledsRG(false, piscadas(m, 2)); break;
@@ -236,6 +270,8 @@ void carregarConfig() {
   cfg_port   = prefs.getInt("port", 1883);
   sensorId   = prefs.getString("sid", "");
   intervaloS = prefs.getInt("intv", INTERVALO_PADRAO_S);
+  otaJobBoot  = prefs.getLong("otajob", 0);
+  otaAlvoBoot = prefs.getString("otaver", "");
   prefs.end();
   if (intervaloS < INTERVALO_MIN_S || intervaloS > INTERVALO_MAX_S) intervaloS = INTERVALO_PADRAO_S;
   registrado = sensorId.length() > 0;
@@ -256,6 +292,13 @@ void salvarConfig() {
   prefs.putInt("intv", intervaloS);
   prefs.end();
   Serial.println("[CFG] Salvo.");
+}
+
+void salvarJobOta(long job, const String& versao) {
+  prefs.begin("va01", false);
+  if (job) { prefs.putLong("otajob", job); prefs.putString("otaver", versao); }
+  else     { prefs.remove("otajob"); prefs.remove("otaver"); }
+  prefs.end();
 }
 
 void apagarConfig() {
@@ -305,6 +348,7 @@ void configurarTopicos() {
   TOPIC_DATA   = "thguard/" + sensorId + "/data";
   TOPIC_STATUS = "thguard/" + sensorId + "/status";
   TOPIC_CMD    = "thguard/" + sensorId + "/cmd";
+  TOPIC_OTA    = "thguard/" + sensorId + "/ota";
 }
 
 // ══════════════════════════════════════════
@@ -382,6 +426,7 @@ void publicarStatus() {
   d["model"]    = MODEL;
   d["fw"]       = FW_VERSION;
   d["interval"] = intervaloS;
+  d["ota"]      = 1;                 // aceita atualizacao pela rede
   char buf[320]; serializeJson(d, buf, sizeof(buf));
   mqtt.publish(TOPIC_STATUS.c_str(), buf);
   t_status = millis();
@@ -414,6 +459,140 @@ void enviarRegister() {
   mqtt.publish(TOPIC_REGISTER, buf);
   Serial.println("[MQTT] Register: " + String(buf));
   t_register = millis();
+}
+
+// ══════════════════════════════════════════
+//  ATUALIZACAO PELA REDE (OTA)
+// ══════════════════════════════════════════
+void publicarOta(long job, const char* estado, int progresso = -1, const String& msg = "") {
+  Serial.printf("[OTA] job %ld: %s %s%s\n", job, estado, progresso >= 0 ? (String(progresso) + "%").c_str() : "", msg.c_str());
+  if (!mqtt.connected() || !registrado || !job) return;
+  JsonDocument d;
+  d["job"] = job; d["state"] = estado; d["version"] = FW_VERSION;
+  if (progresso >= 0) d["progress"] = progresso;
+  if (msg.length()) d["msg"] = msg;
+  char buf[256]; serializeJson(d, buf, sizeof(buf));
+  mqtt.publish(TOPIC_OTA.c_str(), buf);
+}
+
+// Chamada quando o broker conecta: confirma a versao nova e informa o resultado do job
+void confirmarOta() {
+  if (otaVerificar) {
+    esp_ota_mark_app_valid_cancel_rollback();
+    otaVerificar = false;
+    Serial.println("[OTA] Versao " FW_VERSION " confirmada (conectou ao broker).");
+  }
+  if (otaJobBoot && registrado && mqtt.connected()) {
+    if (otaAlvoBoot == FW_VERSION) publicarOta(otaJobBoot, "done");
+    else publicarOta(otaJobBoot, "rolled_back", -1, "a versao nova nao iniciou; voltou para " FW_VERSION);
+    otaJobBoot = 0; otaAlvoBoot = ""; salvarJobOta(0, "");
+  }
+}
+
+// Versao nova que nao conecta ao broker em 5 min volta para a anterior
+void tickVerificacaoOta() {
+  if (otaVerificar && millis() > OTA_VERIFY_MS) {
+    Serial.println("[OTA] Versao nova nao conectou ao broker em 5 min. Voltando para a anterior...");
+    delay(200);
+    esp_ota_mark_app_invalid_rollback_and_reboot();
+  }
+}
+
+String hexDe(const uint8_t* b, size_t n) {
+  static const char* h = "0123456789abcdef"; String s; s.reserve(n * 2);
+  for (size_t i = 0; i < n; i++) { s += h[b[i] >> 4]; s += h[b[i] & 15]; }
+  return s;
+}
+
+// Confere a assinatura ECDSA P-256 (DER, base64) do SHA-256 com a chave publica do secrets.h
+bool assinaturaValida(const uint8_t hash[32], const String& b64) {
+  uint8_t sig[160]; size_t slen = 0;
+  if (mbedtls_base64_decode(sig, sizeof(sig), &slen, (const uint8_t*)b64.c_str(), b64.length()) != 0) return false;
+  mbedtls_pk_context pk; mbedtls_pk_init(&pk);
+  const char* pem = OTA_PUBKEY;
+  bool ok = mbedtls_pk_parse_public_key(&pk, (const uint8_t*)pem, strlen(pem) + 1) == 0 &&
+            mbedtls_pk_verify(&pk, MBEDTLS_MD_SHA256, hash, 32, sig, slen) == 0;
+  mbedtls_pk_free(&pk);
+  return ok;
+}
+
+// Executa o pedido de OTA (no loop, fora do callback do MQTT)
+void executarOta() {
+  if (!ota.pendente) return;
+  ota.pendente = false;
+  otaEmAndamento = true;
+  long job = ota.job;
+  auto falhar = [&](const String& msg) {
+    if (Update.isRunning()) Update.abort();
+    publicarOta(job, "error", -1, msg);
+    otaEmAndamento = false;
+  };
+
+  publicarDados();                                 // nao perde as leituras da janela atual
+  HTTPClient http;
+  WiFiClient cli;
+  http.setTimeout(15000);
+  if (!http.begin(cli, ota.url)) { falhar("URL invalida"); return; }
+  int code = http.GET();
+  if (code != 200) { http.end(); falhar("download respondeu HTTP " + String(code)); return; }
+  int total = http.getSize();
+  if (total <= 0 || (uint32_t)total != ota.tamanho) { http.end(); falhar("tamanho diferente do esperado"); return; }
+  if (!Update.begin(total, U_FLASH)) { http.end(); falhar(String("sem espaco: ") + Update.errorString()); return; }
+
+  mbedtls_sha256_context sha; mbedtls_sha256_init(&sha); mbedtls_sha256_starts(&sha, 0);
+  WiFiClient* st = http.getStreamPtr();
+  static uint8_t buf[2048];
+  int lido = 0, ultimoPct = -1;
+  unsigned long tDado = millis();
+  publicarOta(job, "downloading", 0);
+  while (lido < total) {
+    esp_task_wdt_reset(); tickLeds(); mqtt.loop();
+    size_t disp = st->available();
+    if (!disp) {
+      if (!http.connected() || millis() - tDado > OTA_STALL_MS) { http.end(); mbedtls_sha256_free(&sha); falhar("download interrompido"); return; }
+      delay(5); continue;
+    }
+    int n = st->readBytes(buf, min(disp, sizeof(buf)));
+    if (n <= 0) continue;
+    tDado = millis();
+    mbedtls_sha256_update(&sha, buf, n);
+    if (Update.write(buf, n) != (size_t)n) { http.end(); mbedtls_sha256_free(&sha); falhar(String("erro ao gravar: ") + Update.errorString()); return; }
+    lido += n;
+    int pct = (int)((int64_t)lido * 100 / total);
+    if (pct / 10 != ultimoPct / 10) { ultimoPct = pct; publicarOta(job, "downloading", pct); }
+  }
+  http.end();
+  uint8_t hash[32];
+  mbedtls_sha256_finish(&sha, hash); mbedtls_sha256_free(&sha);
+  if (!hexDe(hash, 32).equalsIgnoreCase(ota.sha)) { falhar("SHA-256 nao confere (arquivo corrompido)"); return; }
+  if (!assinaturaValida(hash, ota.assinatura)) { falhar("assinatura invalida: firmware recusado"); return; }
+  if (!Update.end()) { falhar(String("imagem invalida: ") + Update.errorString()); return; }
+
+  salvarJobOta(job, ota.versao);
+  publicarOta(job, "rebooting", 100, "reiniciando em " + ota.versao);
+  for (int i = 0; i < 20; i++) { mqtt.loop(); delay(50); }
+  mqtt.disconnect(); delay(300);
+  ESP.restart();
+}
+
+void pedidoOta(JsonDocument& d) {
+  long job = d["job"] | 0L;
+  const char* ver = d["version"] | "";
+  const char* sha = d["sha256"] | "";
+  const char* sig = d["sig"] | "";
+  const char* path = d["path"] | "";
+  const char* url = d["url"] | "";
+  uint32_t tam = d["size"] | 0;
+  int port = d["port"] | 80;
+  if (!job) return;
+  if (!*ver || strlen(sha) != 64 || !*sig || !tam || (!*path && !*url)) { publicarOta(job, "error", -1, "comando incompleto"); return; }
+  if (String(ver) == FW_VERSION) { publicarOta(job, "error", -1, "o sensor ja esta nessa versao"); return; }
+  if (otaEmAndamento || ota.pendente) { publicarOta(job, "error", -1, "outra atualizacao em andamento"); return; }
+  ota.job = job; ota.versao = ver; ota.sha = sha; ota.assinatura = sig; ota.tamanho = tam;
+  // Sem URL completa, baixa do mesmo servidor do broker (porta do painel)
+  ota.url = *url ? String(url) : "http://" + cfg_server + ":" + String(port) + path;
+  ota.pendente = true;
+  publicarOta(job, "accepted", -1, "de " FW_VERSION " para " + ota.versao);
 }
 
 // ══════════════════════════════════════════
@@ -451,6 +630,7 @@ void mqttCallback(char* topic, byte* payload, unsigned int len) {
     aplicarIntervalo(d["interval"]);
     mqtt.subscribe(TOPIC_CMD.c_str());
     publicarStatus();
+    confirmarOta();
     return;
   }
 
@@ -472,6 +652,7 @@ void mqttCallback(char* topic, byte* payload, unsigned int len) {
       Serial.println("[CMD] identify: LED verde piscando por 15 s");
       identifyAte = millis() + 15000;
     }
+    if (act == "ota") { pedidoOta(d); return; }
     if (cmd("read_now")) {
       if (nJanela == 0) { somaMv = ultimoMv; somaSpread = ultimoSpread; nJanela = isnan(ultimoMv) ? 0 : 1; }
       publicarDados(); publicarStatus();
@@ -525,7 +706,9 @@ void conectarMQTT() {
     configurarTopicos();
     mqtt.subscribe(TOPIC_CMD.c_str());
     publicarStatus();
+    confirmarOta();
   } else {
+    confirmarOta();                                 // broker ok: versao nova confirmada
     enviarRegister();
   }
 }
@@ -697,6 +880,7 @@ void setup() {
   Serial.begin(115200);
   delay(200);
   Serial.printf("\n[VA01] Boot %s  (reset: %d)\n", FW_VERSION, (int)esp_reset_reason());
+  Serial.println(FW_MARK);
 
   if (PIN_LED >= 0) { pinMode(PIN_LED, OUTPUT); led(false); }
   if (PIN_LED_VERDE    >= 0) pinMode(PIN_LED_VERDE, OUTPUT);
@@ -718,6 +902,15 @@ void setup() {
   Serial.println("[MAC] " + macAddr);
 
   carregarConfig();
+  {
+    esp_ota_img_states_t est;
+    const esp_partition_t* run = esp_ota_get_running_partition();
+    if (esp_ota_get_state_partition(run, &est) == ESP_OK && est == ESP_OTA_IMG_PENDING_VERIFY) {
+      otaVerificar = true;
+      Serial.println("[OTA] Primeira inicializacao da versao nova: aguardando o broker para confirmar.");
+    }
+    Serial.printf("[OTA] Particao em uso: %s\n", run ? run->label : "?");
+  }
   while (millis() < TESTE_LEDS_MS) { delay(50); esp_task_wdt_reset(); }   // teste dos LEDs
   testeLeds = false;
   ultimoMv = lerPinoMv(&ultimoSpread);
@@ -737,6 +930,10 @@ void setup() {
   Serial.println("[VA01] Pronto. ID=" + (registrado ? sensorId : String("pendente")));
 }
 
+// Com o rollback ligado no core, o Arduino marcaria a versao como valida logo no
+// boot. Retornando true, quem confirma e o confirmarOta() (depois do broker).
+extern "C" bool verifyRollbackLater() { return true; }
+
 void loop() {
   esp_task_wdt_reset();
   server.handleClient();
@@ -744,6 +941,8 @@ void loop() {
   tickWifi();
   tickLeitura();
   tickMQTT();
+  executarOta();
+  tickVerificacaoOta();
   tickLED();
   tickLeds();
   delay(2);
